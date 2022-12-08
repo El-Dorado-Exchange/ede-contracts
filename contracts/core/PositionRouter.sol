@@ -5,6 +5,7 @@ pragma solidity ^0.8.0;
 import "./interfaces/IRouter.sol";
 import "./interfaces/IVault.sol";
 import "./interfaces/IPositionRouter.sol";
+
 import "../peripherals/interfaces/ITimelock.sol";
 import "./BasePositionManager.sol";
 
@@ -44,9 +45,12 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
     }
 
     uint256 public minExecutionFee;
+
     uint256 public minBlockDelayKeeper;
     uint256 public minTimeDelayPublic;
     uint256 public maxTimeDelay;
+
+    uint256 public constant bonusUsdSwap = 10 * 12;
 
     bool public isLeverageEnabled = true;
 
@@ -57,8 +61,10 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
     uint256 public override decreasePositionRequestKeysStart;
 
     mapping(address => bool) public isPositionKeeper;
+
     mapping(address => uint256) public increasePositionsIndex;
     mapping(bytes32 => IncreasePositionRequest) public increasePositionRequests;
+
     mapping(address => uint256) public decreasePositionsIndex;
     mapping(bytes32 => DecreasePositionRequest) public decreasePositionRequests;
 
@@ -180,20 +186,20 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
         minExecutionFee = _minExecutionFee;
     }
 
-    function setPositionKeeper(address _account, bool _isActive)
-        external
-        onlyAdmin
-    {
+    function setPositionKeeper(
+        address _account,
+        bool _isActive
+    ) external onlyOwner {
         isPositionKeeper[_account] = _isActive;
         emit SetPositionKeeper(_account, _isActive);
     }
 
-    function setMinExecutionFee(uint256 _minExecutionFee) external onlyAdmin {
+    function setMinExecutionFee(uint256 _minExecutionFee) external onlyOwner {
         minExecutionFee = _minExecutionFee;
         emit SetMinExecutionFee(_minExecutionFee);
     }
 
-    function setIsLeverageEnabled(bool _isLeverageEnabled) external onlyAdmin {
+    function setIsLeverageEnabled(bool _isLeverageEnabled) external onlyOwner {
         isLeverageEnabled = _isLeverageEnabled;
         emit SetIsLeverageEnabled(_isLeverageEnabled);
     }
@@ -202,7 +208,7 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
         uint256 _minBlockDelayKeeper,
         uint256 _minTimeDelayPublic,
         uint256 _maxTimeDelay
-    ) external onlyAdmin {
+    ) external onlyOwner {
         minBlockDelayKeeper = _minBlockDelayKeeper;
         minTimeDelayPublic = _minTimeDelayPublic;
         maxTimeDelay = _maxTimeDelay;
@@ -216,7 +222,7 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
     function setRequestKeysStartValues(
         uint256 _increasePositionRequestKeysStart,
         uint256 _decreasePositionRequestKeysStart
-    ) external onlyAdmin {
+    ) external onlyOwner {
         increasePositionRequestKeysStart = _increasePositionRequestKeysStart;
         decreasePositionRequestKeysStart = _decreasePositionRequestKeysStart;
 
@@ -343,7 +349,7 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
     ) external payable override nonReentrant {
         require(
             _executionFee >= minExecutionFee,
-            "PositionRouter: invalid executionFee"
+            "PositionRouter: insufficient executionFee"
         );
         require(
             msg.value >= _executionFee,
@@ -391,7 +397,7 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
     ) external payable nonReentrant {
         require(
             _executionFee >= minExecutionFee,
-            "PositionRouter: invalid executionFee"
+            "PositionRouter: insufficient executionFee"
         );
         require(
             msg.value >= _executionFee,
@@ -404,9 +410,10 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
         require(_path[0] == weth, "PositionRouter: invalid _path");
 
         _transferInETH();
+        // _setTraderReferralCode(_referralCode);
 
         uint256 amountIn = msg.value.sub(_executionFee);
-
+        require(amountIn > 0, "out of amount");
         _createIncreasePosition(
             msg.sender,
             _path,
@@ -435,7 +442,7 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
     ) external payable override nonReentrant {
         require(
             _executionFee >= minExecutionFee,
-            "PositionRouter: invalid executionFee"
+            "PositionRouter: insufficient executionFee"
         );
         require(
             msg.value >= _executionFee,
@@ -473,12 +480,7 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
     function getRequestQueueLengths()
         external
         view
-        returns (
-            uint256,
-            uint256,
-            uint256,
-            uint256
-        )
+        returns (uint256, uint256, uint256, uint256)
     {
         return (
             increasePositionRequestKeysStart,
@@ -716,28 +718,23 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
         return true;
     }
 
-    function getRequestKey(address _account, uint256 _index)
-        public
-        pure
-        returns (bytes32)
-    {
+    function getRequestKey(
+        address _account,
+        uint256 _index
+    ) public pure returns (bytes32) {
         return keccak256(abi.encodePacked(_account, _index));
     }
 
-    function getIncreasePositionRequestPath(bytes32 _key)
-        public
-        view
-        returns (address[] memory)
-    {
+    function getIncreasePositionRequestPath(
+        bytes32 _key
+    ) public view returns (address[] memory) {
         IncreasePositionRequest memory request = increasePositionRequests[_key];
         return request.path;
     }
 
-    function getDecreasePositionRequestPath(bytes32 _key)
-        public
-        view
-        returns (address[] memory)
-    {
+    function getDecreasePositionRequestPath(
+        bytes32 _key
+    ) public view returns (address[] memory) {
         DecreasePositionRequest memory request = decreasePositionRequests[_key];
         return request.path;
     }

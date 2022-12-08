@@ -4,12 +4,13 @@ pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "../tokens/interfaces/IWETH.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/Address.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
-import "../tokens/interfaces/IWETH.sol";
+
 import "./interfaces/IRouter.sol";
 import "./interfaces/IVault.sol";
 import "./interfaces/IOrderBook.sol";
@@ -55,12 +56,12 @@ contract OrderBook is ReentrancyGuard, IOrderBook, Ownable {
         uint256 executionFee;
     }
 
-    mapping(address => mapping(uint256 => IncreaseOrder)) public increaseOrders;
-    mapping(address => uint256) public increaseOrdersIndex;
-    mapping(address => mapping(uint256 => DecreaseOrder)) public decreaseOrders;
-    mapping(address => uint256) public decreaseOrdersIndex;
-    mapping(address => mapping(uint256 => SwapOrder)) public swapOrders;
-    mapping(address => uint256) public swapOrdersIndex;
+    mapping (address => mapping(uint256 => IncreaseOrder)) public increaseOrders;
+    mapping (address => uint256) public increaseOrdersIndex;
+    mapping (address => mapping(uint256 => DecreaseOrder)) public decreaseOrders;
+    mapping (address => uint256) public decreaseOrdersIndex;
+    mapping (address => mapping(uint256 => SwapOrder)) public swapOrders;
+    mapping (address => uint256) public swapOrdersIndex;
 
     address public weth;
     address public router;
@@ -223,6 +224,7 @@ contract OrderBook is ReentrancyGuard, IOrderBook, Ownable {
     event UpdateMinExecutionFee(uint256 minExecutionFee);
     event UpdateMinPurchaseTokenAmountUsd(uint256 minPurchaseTokenAmountUsd);
 
+
     function initialize(
         address _router,
         address _vault,
@@ -239,50 +241,42 @@ contract OrderBook is ReentrancyGuard, IOrderBook, Ownable {
         minExecutionFee = _minExecutionFee;
         minPurchaseTokenAmountUsd = _minPurchaseTokenAmountUsd;
 
-        emit Initialize(
-            _router,
-            _vault,
-            _weth,
-            _minExecutionFee,
-            _minPurchaseTokenAmountUsd
-        );
+        emit Initialize(_router, _vault, _weth, _minExecutionFee, _minPurchaseTokenAmountUsd);
     }
 
     receive() external payable {
         require(msg.sender == weth, "OrderBook: invalid sender");
     }
+    
+    function withdrawToken(
+        address _account,
+        address _token,
+        uint256 _amount
+    ) external onlyOwner{
+        IERC20(_token).safeTransfer(_account, _amount);
+    }
 
     function setMinExecutionFee(uint256 _minExecutionFee) external onlyOwner {
         minExecutionFee = _minExecutionFee;
-
         emit UpdateMinExecutionFee(_minExecutionFee);
     }
 
-    function setMinPurchaseTokenAmountUsd(uint256 _minPurchaseTokenAmountUsd)
-        external
-        onlyOwner
-    {
+    function setMinPurchaseTokenAmountUsd(uint256 _minPurchaseTokenAmountUsd) external onlyOwner {
         minPurchaseTokenAmountUsd = _minPurchaseTokenAmountUsd;
-
         emit UpdateMinPurchaseTokenAmountUsd(_minPurchaseTokenAmountUsd);
     }
 
-    function getSwapOrder(address _account, uint256 _orderIndex)
-        public
-        view
-        override
-        returns (
-            address path0,
-            address path1,
-            address path2,
-            uint256 amountIn,
-            uint256 minOut,
-            uint256 triggerRatio,
-            bool triggerAboveThreshold,
-            bool shouldUnwrap,
-            uint256 executionFee
-        )
-    {
+    function getSwapOrder(address _account, uint256 _orderIndex) override public view returns (
+        address path0,
+        address path1,
+        address path2,
+        uint256 amountIn,
+        uint256 minOut,
+        uint256 triggerRatio,
+        bool triggerAboveThreshold,
+        bool shouldUnwrap,
+        uint256 executionFee
+    ) {
         SwapOrder memory order = swapOrders[_account][_orderIndex];
         return (
             order.path.length > 0 ? order.path[0] : address(0),
@@ -307,52 +301,25 @@ contract OrderBook is ReentrancyGuard, IOrderBook, Ownable {
         bool _shouldWrap,
         bool _shouldUnwrap
     ) external payable nonReentrant {
-        require(
-            _path.length == 2 || _path.length == 3,
-            "OrderBook: invalid _path.length"
-        );
-        require(
-            _path[0] != _path[_path.length - 1],
-            "OrderBook: invalid _path"
-        );
+        require(_path.length == 2 || _path.length == 3, "OrderBook: invalid _path.length");
+        require(_path[0] != _path[_path.length - 1], "OrderBook: invalid _path");
         require(_amountIn > 0, "OrderBook: invalid _amountIn");
-        require(
-            _executionFee >= minExecutionFee,
-            "OrderBook: insufficient execution fee"
-        );
-
+        require(_executionFee >= minExecutionFee, "OrderBook: insufficient execution fee");
+        for(uint i = 0; i < _path.length; i++){
+            require(IVault(vault).whitelistedTokens(_path[i]), "invalid token");
+        }
         // always need this call because of mandatory executionFee user has to transfer in ETH
         _transferInETH();
 
         if (_shouldWrap) {
             require(_path[0] == weth, "OrderBook: only weth could be wrapped");
-            require(
-                msg.value == _executionFee.add(_amountIn),
-                "OrderBook: incorrect value transferred"
-            );
+            require(msg.value == _executionFee.add(_amountIn), "OrderBook: incorrect value transferred");
         } else {
-            require(
-                msg.value == _executionFee,
-                "OrderBook: incorrect execution fee transferred"
-            );
-            IRouter(router).pluginTransfer(
-                _path[0],
-                msg.sender,
-                address(this),
-                _amountIn
-            );
+            require(msg.value == _executionFee, "OrderBook: incorrect execution fee transferred");
+            IRouter(router).pluginTransfer(_path[0], msg.sender, address(this), _amountIn);
         }
 
-        _createSwapOrder(
-            msg.sender,
-            _path,
-            _amountIn,
-            _minOut,
-            _triggerRatio,
-            _triggerAboveThreshold,
-            _shouldUnwrap,
-            _executionFee
-        );
+        _createSwapOrder(msg.sender, _path, _amountIn, _minOut, _triggerRatio, _triggerAboveThreshold, _shouldUnwrap, _executionFee);
     }
 
     function _createSwapOrder(
@@ -415,10 +382,7 @@ contract OrderBook is ReentrancyGuard, IOrderBook, Ownable {
         delete swapOrders[msg.sender][_orderIndex];
 
         if (order.path[0] == weth) {
-            _transferOutETH(
-                order.executionFee.add(order.amountIn),
-                payable(msg.sender)
-            ); //BLKMDF
+            _transferOutETH(order.executionFee.add(order.amountIn), payable(msg.sender)); //BLKMDF
         } else {
             IERC20(order.path[0]).safeTransfer(msg.sender, order.amountIn);
             _transferOutETH(order.executionFee, payable(msg.sender)); //BLKMDF
@@ -441,10 +405,7 @@ contract OrderBook is ReentrancyGuard, IOrderBook, Ownable {
         address[] memory _path,
         uint256 _triggerRatio
     ) public view returns (bool) {
-        require(
-            _path.length == 2 || _path.length == 3,
-            "OrderBook: invalid _path.length"
-        );
+        require(_path.length == 2 || _path.length == 3, "OrderBook: invalid _path.length");
 
         // limit orders don't need this validation because minOut is enough
         // so this validation handles scenarios for stop orders only
@@ -454,23 +415,18 @@ contract OrderBook is ReentrancyGuard, IOrderBook, Ownable {
         uint256 tokenAPrice;
         uint256 tokenBPrice;
 
+  
         tokenAPrice = IVault(vault).getMinPrice(tokenA);
         tokenBPrice = IVault(vault).getMaxPrice(tokenB);
+        
 
-        uint256 currentRatio = tokenBPrice.mul(PRICE_PRECISION).div(
-            tokenAPrice
-        );
+        uint256 currentRatio = tokenBPrice.mul(PRICE_PRECISION).div(tokenAPrice);
 
         bool isValid = currentRatio > _triggerRatio;
         return isValid;
     }
 
-    function updateSwapOrder(
-        uint256 _orderIndex,
-        uint256 _minOut,
-        uint256 _triggerRatio,
-        bool _triggerAboveThreshold
-    ) external nonReentrant {
+    function updateSwapOrder(uint256 _orderIndex, uint256 _minOut, uint256 _triggerRatio, bool _triggerAboveThreshold) external nonReentrant {
         SwapOrder storage order = swapOrders[msg.sender][_orderIndex];
         require(order.account != address(0), "OrderBook: non-existent order");
 
@@ -491,11 +447,7 @@ contract OrderBook is ReentrancyGuard, IOrderBook, Ownable {
         );
     }
 
-    function executeSwapOrder(
-        address _account,
-        uint256 _orderIndex,
-        address payable _feeReceiver
-    ) external override nonReentrant {
+    function executeSwapOrder(address _account, uint256 _orderIndex, address payable _feeReceiver) override external nonReentrant {
         SwapOrder memory order = swapOrders[_account][_orderIndex];
         require(order.account != address(0), "OrderBook: non-existent order");
 
@@ -503,10 +455,7 @@ contract OrderBook is ReentrancyGuard, IOrderBook, Ownable {
             // gas optimisation
             // order.minAmount should prevent wrong price execution in case of simple limit order
             require(
-                validateSwapOrderPriceWithTriggerAboveThreshold(
-                    order.path,
-                    order.triggerRatio
-                ),
+                validateSwapOrderPriceWithTriggerAboveThreshold(order.path, order.triggerRatio),
                 "OrderBook: invalid price for execution"
             );
         }
@@ -548,32 +497,24 @@ contract OrderBook is ReentrancyGuard, IOrderBook, Ownable {
         bool _raise
     ) public view returns (uint256, bool) {
         uint256 currentPrice = _maximizePrice
-            ? IVault(vault).getMaxPrice(_indexToken)
-            : IVault(vault).getMinPrice(_indexToken);
-        bool isPriceValid = _triggerAboveThreshold
-            ? currentPrice > _triggerPrice
-            : currentPrice < _triggerPrice;
+            ? IVault(vault).getMaxPrice(_indexToken) : IVault(vault).getMinPrice(_indexToken);
+        bool isPriceValid = _triggerAboveThreshold ? currentPrice > _triggerPrice : currentPrice < _triggerPrice;
         if (_raise) {
             require(isPriceValid, "OrderBook: invalid price for execution");
         }
         return (currentPrice, isPriceValid);
     }
 
-    function getDecreaseOrder(address _account, uint256 _orderIndex)
-        public
-        view
-        override
-        returns (
-            address collateralToken,
-            uint256 collateralDelta,
-            address indexToken,
-            uint256 sizeDelta,
-            bool isLong,
-            uint256 triggerPrice,
-            bool triggerAboveThreshold,
-            uint256 executionFee
-        )
-    {
+    function getDecreaseOrder(address _account, uint256 _orderIndex) override public view returns (
+        address collateralToken,
+        uint256 collateralDelta,
+        address indexToken,
+        uint256 sizeDelta,
+        bool isLong,
+        uint256 triggerPrice,
+        bool triggerAboveThreshold,
+        uint256 executionFee
+    ) {
         DecreaseOrder memory order = decreaseOrders[_account][_orderIndex];
         return (
             order.collateralToken,
@@ -587,22 +528,17 @@ contract OrderBook is ReentrancyGuard, IOrderBook, Ownable {
         );
     }
 
-    function getIncreaseOrder(address _account, uint256 _orderIndex)
-        public
-        view
-        override
-        returns (
-            address purchaseToken,
-            uint256 purchaseTokenAmount,
-            address collateralToken,
-            address indexToken,
-            uint256 sizeDelta,
-            bool isLong,
-            uint256 triggerPrice,
-            bool triggerAboveThreshold,
-            uint256 executionFee
-        )
-    {
+    function getIncreaseOrder(address _account, uint256 _orderIndex) override public view returns (
+        address purchaseToken,
+        uint256 purchaseTokenAmount,
+        address collateralToken,
+        address indexToken,
+        uint256 sizeDelta,
+        bool isLong,
+        uint256 triggerPrice,
+        bool triggerAboveThreshold,
+        uint256 executionFee
+    ) {
         IncreaseOrder memory order = increaseOrders[_account][_orderIndex];
         return (
             order.purchaseToken,
@@ -632,28 +568,14 @@ contract OrderBook is ReentrancyGuard, IOrderBook, Ownable {
     ) external payable nonReentrant {
         // always need this call because of mandatory executionFee user has to transfer in ETH
         _transferInETH();
-
-        require(
-            _executionFee >= minExecutionFee,
-            "OrderBook: insufficient execution fee"
-        );
+        require(_path.length == 1 || _path.length == 2, "invalid path");
+        require(_executionFee >= minExecutionFee, "OrderBook: insufficient execution fee");
         if (_shouldWrap) {
             require(_path[0] == weth, "OrderBook: only weth could be wrapped");
-            require(
-                msg.value == _executionFee.add(_amountIn),
-                "OrderBook: incorrect value transferred"
-            );
+            require(msg.value == _executionFee.add(_amountIn), "OrderBook: incorrect value transferred");
         } else {
-            require(
-                msg.value == _executionFee,
-                "OrderBook: incorrect execution fee transferred"
-            );
-            IRouter(router).pluginTransfer(
-                _path[0],
-                msg.sender,
-                address(this),
-                _amountIn
-            );
+            require(msg.value == _executionFee, "OrderBook: incorrect execution fee transferred");
+            IRouter(router).pluginTransfer(_path[0], msg.sender, address(this), _amountIn);
         }
 
         address _purchaseToken = _path[_path.length - 1];
@@ -667,14 +589,8 @@ contract OrderBook is ReentrancyGuard, IOrderBook, Ownable {
         }
 
         {
-            uint256 _purchaseTokenAmountUsd = IVault(vault).tokenToUsdMin(
-                _purchaseToken,
-                _purchaseTokenAmount
-            );
-            require(
-                _purchaseTokenAmountUsd >= minPurchaseTokenAmountUsd,
-                "OrderBook: insufficient collateral"
-            );
+            uint256 _purchaseTokenAmountUsd = IVault(vault).tokenToUsdMin(_purchaseToken, _purchaseTokenAmount);
+            require(_purchaseTokenAmountUsd >= minPurchaseTokenAmountUsd, "OrderBook: insufficient collateral");
         }
 
         _createIncreaseOrder(
@@ -734,12 +650,7 @@ contract OrderBook is ReentrancyGuard, IOrderBook, Ownable {
         );
     }
 
-    function updateIncreaseOrder(
-        uint256 _orderIndex,
-        uint256 _sizeDelta,
-        uint256 _triggerPrice,
-        bool _triggerAboveThreshold
-    ) external nonReentrant {
+    function updateIncreaseOrder(uint256 _orderIndex, uint256 _sizeDelta, uint256 _triggerPrice, bool _triggerAboveThreshold) external nonReentrant {
         IncreaseOrder storage order = increaseOrders[msg.sender][_orderIndex];
         require(order.account != address(0), "OrderBook: non-existent order");
 
@@ -766,16 +677,10 @@ contract OrderBook is ReentrancyGuard, IOrderBook, Ownable {
         delete increaseOrders[msg.sender][_orderIndex];
 
         if (order.purchaseToken == weth) {
-            _transferOutETH(
-                order.executionFee.add(order.purchaseTokenAmount),
-                payable(msg.sender)
-            ); //BLKMDF
+            _transferOutETH(order.executionFee.add(order.purchaseTokenAmount), payable(msg.sender)); //BLKMDF
         } else {
-            IERC20(order.purchaseToken).safeTransfer(
-                msg.sender,
-                order.purchaseTokenAmount
-            );
-            _transferOutETH(order.executionFee, payable(msg.sender)); //BLKMDF
+            IERC20(order.purchaseToken).safeTransfer(msg.sender, order.purchaseTokenAmount);
+            _transferOutETH(order.executionFee,payable(msg.sender)); //BLKMDF
         }
 
         emit CancelIncreaseOrder(
@@ -793,11 +698,7 @@ contract OrderBook is ReentrancyGuard, IOrderBook, Ownable {
         );
     }
 
-    function executeIncreaseOrder(
-        address _address,
-        uint256 _orderIndex,
-        address payable _feeReceiver
-    ) external override nonReentrant {
+    function executeIncreaseOrder(address _address, uint256 _orderIndex, address payable _feeReceiver) override external nonReentrant {
         IncreaseOrder memory order = increaseOrders[_address][_orderIndex];
         require(order.account != address(0), "OrderBook: non-existent order");
 
@@ -813,10 +714,7 @@ contract OrderBook is ReentrancyGuard, IOrderBook, Ownable {
 
         delete increaseOrders[_address][_orderIndex];
 
-        IERC20(order.purchaseToken).safeTransfer(
-            vault,
-            order.purchaseTokenAmount
-        );
+        IERC20(order.purchaseToken).safeTransfer(vault, order.purchaseTokenAmount);
 
         if (order.purchaseToken != order.collateralToken) {
             address[] memory path = new address[](2);
@@ -827,13 +725,7 @@ contract OrderBook is ReentrancyGuard, IOrderBook, Ownable {
             IERC20(order.collateralToken).safeTransfer(vault, amountOut);
         }
 
-        IRouter(router).pluginIncreasePosition(
-            order.account,
-            order.collateralToken,
-            order.indexToken,
-            order.sizeDelta,
-            order.isLong
-        );
+        IRouter(router).pluginIncreasePosition(order.account, order.collateralToken, order.indexToken, order.sizeDelta, order.isLong);
 
         // pay executor
         _transferOutETH(order.executionFee, _feeReceiver);
@@ -865,10 +757,7 @@ contract OrderBook is ReentrancyGuard, IOrderBook, Ownable {
     ) external payable nonReentrant {
         _transferInETH();
 
-        require(
-            msg.value >= minExecutionFee,
-            "OrderBook: insufficient execution fee"
-        );
+        require(msg.value >= minExecutionFee, "OrderBook: insufficient execution fee");
 
         _createDecreaseOrder(
             msg.sender,
@@ -921,11 +810,7 @@ contract OrderBook is ReentrancyGuard, IOrderBook, Ownable {
         );
     }
 
-    function executeDecreaseOrder(
-        address _address,
-        uint256 _orderIndex,
-        address payable _feeReceiver
-    ) external override nonReentrant {
+    function executeDecreaseOrder(address _address, uint256 _orderIndex, address payable _feeReceiver) override external nonReentrant {
         DecreaseOrder memory order = decreaseOrders[_address][_orderIndex];
         require(order.account != address(0), "OrderBook: non-existent order");
 
@@ -955,10 +840,7 @@ contract OrderBook is ReentrancyGuard, IOrderBook, Ownable {
         if (order.collateralToken == weth) {
             _transferOutETH(amountOut, payable(order.account));
         } else {
-            IERC20(order.collateralToken).safeTransfer(
-                order.account,
-                amountOut
-            );
+            IERC20(order.collateralToken).safeTransfer(order.account, amountOut);
         }
 
         // pay executor
@@ -1034,18 +916,12 @@ contract OrderBook is ReentrancyGuard, IOrderBook, Ownable {
         }
     }
 
-    function _transferOutETH(uint256 _amountOut, address payable _receiver)
-        private
-    {
+    function _transferOutETH(uint256 _amountOut, address payable _receiver) private {
         IWETH(weth).withdraw(_amountOut);
         _receiver.sendValue(_amountOut);
     }
 
-    function _swap(
-        address[] memory _path,
-        uint256 _minOut,
-        address _receiver
-    ) private returns (uint256) {
+    function _swap(address[] memory _path, uint256 _minOut, address _receiver) private returns (uint256) {
         if (_path.length == 2) {
             return _vaultSwap(_path[0], _path[1], _minOut, _receiver);
         }
@@ -1058,15 +934,11 @@ contract OrderBook is ReentrancyGuard, IOrderBook, Ownable {
         revert("OrderBook: invalid _path.length");
     }
 
-    function _vaultSwap(
-        address _tokenIn,
-        address _tokenOut,
-        uint256 _minOut,
-        address _receiver
-    ) private returns (uint256) {
+    function _vaultSwap(address _tokenIn, address _tokenOut, uint256 _minOut, address _receiver) private returns (uint256) {
         uint256 amountOut;
 
         amountOut = IVault(vault).swap(_tokenIn, _tokenOut, _receiver);
+        
 
         require(amountOut >= _minOut, "OrderBook: insufficient amountOut");
         return amountOut;

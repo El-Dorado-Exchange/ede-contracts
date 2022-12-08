@@ -4,7 +4,30 @@ pragma solidity ^0.8.0;
 
 contract NFTUtils {
     string internal constant TABLE =
-        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+
+    function genReferralCode(
+        uint256 _accountId
+    ) public pure returns (string memory) {
+        bytes memory _orgCode = bytes(toHexString(_accountId));
+        uint8 rType = uint8(_accountId % 10);
+        bytes memory rtnV = new bytes(
+            (_orgCode.length > 5 ? _orgCode.length : 5) + 1
+        ); //abi.encodePacked(rType);
+
+        rtnV[0] = toChar(rType);
+        for (uint i = 0; i < 5; i++) {
+            uint use_digit = rType > 4 ? (i + rType) % 5 : (5 - i + rType) % 5;
+            rtnV[i + 1] = use_digit >= _orgCode.length
+                ? bytes1("0")
+                : _orgCode[use_digit];
+        }
+
+        for (uint i = 5; i < _orgCode.length; i++) {
+            rtnV[i + 1] = _orgCode[i];
+        }
+        return string(rtnV);
+    }
 
     function attributeForTypeAndValue(
         string memory traitType,

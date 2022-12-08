@@ -15,6 +15,7 @@ interface IVault {
 
     function setESBT(address _eSBT) external;
 
+
     function router() external view returns (address);
 
     function usdx() external view returns (address);
@@ -25,10 +26,9 @@ interface IVault {
 
     function totalTokenWeights() external view returns (uint256);
 
-    function getTargetUsdxAmount(address _token)
-        external
-        view
-        returns (uint256);
+    function getTargetUsdxAmount(
+        address _token
+    ) external view returns (uint256);
 
     function inManagerMode() external view returns (bool);
 
@@ -36,19 +36,18 @@ interface IVault {
 
     function usdxSupply() external view returns (uint256);
 
-    function approvedRouters(address _account, address _router)
-        external
-        view
-        returns (bool);
+    function approvedRouters(
+        address _account,
+        address _router
+    ) external view returns (bool);
 
     function isLiquidator(address _account) external view returns (bool);
 
     function isManager(address _account) external view returns (bool);
 
-    function minProfitBasisPoints(address _token)
-        external
-        view
-        returns (uint256);
+    function minProfitBasisPoints(
+        address _token
+    ) external view returns (uint256);
 
     function tokenBalances(address _token) external view returns (uint256);
 
@@ -68,8 +67,9 @@ interface IVault {
 
     function setMaxGlobalShortSize(address _token, uint256 _amount) external;
 
-    function setInPrivateLiquidationMode(bool _inPrivateLiquidationMode)
-        external;
+    function setInPrivateLiquidationMode(
+        bool _inPrivateLiquidationMode
+    ) external;
 
     function setLiquidator(address _liquidator, bool _isActive) external;
 
@@ -91,11 +91,14 @@ interface IVault {
 
     function setPriceFeed(address _priceFeed) external;
 
+    function setRouter(address _router) external;
+
     function directPoolDeposit(address _token) external;
 
-    function buyUSDX(address _token, address _receiver)
-        external
-        returns (uint256);
+    function buyUSDX(
+        address _token,
+        address _receiver
+    ) external returns (uint256);
 
     function sellUSDX(
         address _token,
@@ -137,10 +140,20 @@ interface IVault {
         address _feeReceiver
     ) external;
 
-    function tokenToUsdMin(address _token, uint256 _tokenAmount)
-        external
-        view
-        returns (uint256);
+    function tokenToUsdMin(
+        address _token,
+        uint256 _tokenAmount
+    ) external view returns (uint256);
+
+    function usdToTokenMax(
+        address _token,
+        uint256 _usdAmount
+    ) external view returns (uint256);
+
+    function usdToTokenMin(
+        address _token,
+        uint256 _usdAmount
+    ) external view returns (uint256);
 
     function priceFeed() external view returns (address);
 
@@ -148,14 +161,12 @@ interface IVault {
 
     function stableFundingRateFactor() external view returns (uint256);
 
-    function cumulativeFundingRates(address _token)
-        external
-        view
-        returns (uint256);
+    function cumulativeFundingRates(
+        address _token
+    ) external view returns (uint256);
 
     function getNextFundingRate(address _token) external view returns (uint256);
 
-    // function getFeeBasisPoints(address _token, uint256 _usdxDelta, uint256 _feeBasisPoints, uint256 _taxBasisPoints, bool _increment) external view returns (uint256);
 
     function allWhitelistedTokensLength() external view returns (uint256);
 
@@ -171,15 +182,13 @@ interface IVault {
 
     function globalShortSizes(address _token) external view returns (uint256);
 
-    function globalShortAveragePrices(address _token)
-        external
-        view
-        returns (uint256);
+    function globalShortAveragePrices(
+        address _token
+    ) external view returns (uint256);
 
-    function maxGlobalShortSizes(address _token)
-        external
-        view
-        returns (uint256);
+    function maxGlobalShortSizes(
+        address _token
+    ) external view returns (uint256);
 
     function tokenDecimals(address _token) external view returns (uint256);
 
@@ -197,10 +206,10 @@ interface IVault {
 
     function maxUSDAmounts(address _token) external view returns (uint256);
 
-    function getRedemptionAmount(address _token, uint256 _usdxAmount)
-        external
-        view
-        returns (uint256);
+    function getRedemptionAmount(
+        address _token,
+        uint256 _usdxAmount
+    ) external view returns (uint256);
 
     function getMaxPrice(address _token) external view returns (uint256);
 
@@ -233,12 +242,23 @@ interface IVault {
             uint256
         );
 
-    function tokenUtilization(address _token) external view returns (uint256);
-
-    function getTokenFundingRate(address _token)
+    function getPositionByKey(
+        bytes32 _key
+    )
         external
         view
-        returns (uint256);
+        returns (
+            uint256,
+            uint256,
+            uint256,
+            uint256,
+            uint256,
+            uint256,
+            bool,
+            uint256
+        );
+
+    function tokenUtilization(address _token) external view returns (uint256);
 
     function claimFeeReserves() external returns (uint256);
 

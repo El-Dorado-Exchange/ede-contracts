@@ -5,17 +5,16 @@ pragma solidity ^0.8.0;
 import "./interfaces/IRouter.sol";
 import "./interfaces/IVault.sol";
 import "./interfaces/IOrderBook.sol";
+
 import "../peripherals/interfaces/ITimelock.sol";
 import "./BasePositionManager.sol";
 
 contract PositionManager is BasePositionManager {
-    using SafeMath for uint256;
+    using SafeMath for uint256; //BLKMDF
     using SafeERC20 for IERC20;
 
     address public orderBook;
     bool public inLegacyMode;
-
-    bool public shouldValidateIncreaseOrder = true;
 
     mapping(address => bool) public isOrderKeeper;
     mapping(address => bool) public isPartner;
@@ -25,7 +24,6 @@ contract PositionManager is BasePositionManager {
     event SetLiquidator(address indexed account, bool isActive);
     event SetPartner(address account, bool isActive);
     event SetInLegacyMode(bool inLegacyMode);
-    event SetShouldValidateIncreaseOrder(bool shouldValidateIncreaseOrder);
 
     modifier onlyOrderKeeper() {
         require(isOrderKeeper[msg.sender], "PositionManager: forbidden");
@@ -55,38 +53,30 @@ contract PositionManager is BasePositionManager {
         orderBook = _orderBook;
     }
 
-    function setOrderKeeper(address _account, bool _isActive)
-        external
-        onlyAdmin
-    {
+    function setOrderKeeper(
+        address _account,
+        bool _isActive
+    ) external onlyOwner {
         isOrderKeeper[_account] = _isActive;
         emit SetOrderKeeper(_account, _isActive);
     }
 
-    function setLiquidator(address _account, bool _isActive)
-        external
-        onlyAdmin
-    {
+    function setLiquidator(
+        address _account,
+        bool _isActive
+    ) external onlyOwner {
         isLiquidator[_account] = _isActive;
         emit SetLiquidator(_account, _isActive);
     }
 
-    function setPartner(address _account, bool _isActive) external onlyAdmin {
+    function setPartner(address _account, bool _isActive) external onlyOwner {
         isPartner[_account] = _isActive;
         emit SetPartner(_account, _isActive);
     }
 
-    function setInLegacyMode(bool _inLegacyMode) external onlyAdmin {
+    function setInLegacyMode(bool _inLegacyMode) external onlyOwner {
         inLegacyMode = _inLegacyMode;
         emit SetInLegacyMode(_inLegacyMode);
-    }
-
-    function setShouldValidateIncreaseOrder(bool _shouldValidateIncreaseOrder)
-        external
-        onlyAdmin
-    {
-        shouldValidateIncreaseOrder = _shouldValidateIncreaseOrder;
-        emit SetShouldValidateIncreaseOrder(_shouldValidateIncreaseOrder);
     }
 
     function increasePosition(
@@ -357,71 +347,5 @@ contract PositionManager is BasePositionManager {
             _feeReceiver
         );
         ITimelock(timelock).disableLeverage(_vault);
-    }
-
-    function _validateIncreaseOrder(address _account, uint256 _orderIndex)
-        internal
-        view
-        returns (uint256)
-    {
-        (
-            address _purchaseToken,
-            uint256 _purchaseTokenAmount,
-            address _collateralToken,
-            address _indexToken,
-            uint256 _sizeDelta,
-            bool _isLong,
-            ,
-            ,
-
-        ) = IOrderBook(orderBook).getIncreaseOrder(_account, _orderIndex);
-
-        if (!shouldValidateIncreaseOrder) {
-            return _sizeDelta;
-        }
-
-        if (!_isLong) {
-            return _sizeDelta;
-        }
-
-        require(_sizeDelta > 0, "PositionManager: long deposit");
-
-        IVault _vault = IVault(vault);
-        (uint256 size, uint256 collateral, , , , , , ) = _vault.getPosition(
-            _account,
-            _collateralToken,
-            _indexToken,
-            _isLong
-        );
-
-        // if there is no existing position, do not charge a fee
-        if (size == 0) {
-            return _sizeDelta;
-        }
-
-        // uint256 nextSize = size.add(_sizeDelta);
-        uint256 nextSize = size.add(_sizeDelta);
-        //todo: avoid overflow, using safemath
-
-        uint256 collateralDelta = _vault.tokenToUsdMin(
-            _purchaseToken,
-            _purchaseTokenAmount
-        );
-
-        uint256 nextCollateral = collateral.add(collateralDelta);
-
-        uint256 prevLeverage = size.mul(BASIS_POINTS_DIVISOR).div(collateral);
-
-        // allow for a maximum of a increasePositionBufferBps decrease since there might be some swap fees taken from the collateral
-        uint256 nextLeverageWithBuffer = nextSize
-            .mul(BASIS_POINTS_DIVISOR + increasePositionBufferBps)
-            .div(nextCollateral);
-
-        require(
-            nextLeverageWithBuffer >= prevLeverage,
-            "PositionManager: long leverage decrease"
-        );
-
-        return _sizeDelta;
     }
 }

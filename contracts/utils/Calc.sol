@@ -24,11 +24,7 @@ library Calc {
         return a + SafeCast.toInt256(b);
     }
 
-    function toSigned(uint256 a, bool isPositive)
-        internal
-        pure
-        returns (int256)
-    {
+    function toSigned(uint256 a, bool isPositive) internal pure returns (int256) {
         if (isPositive) {
             return SafeCast.toInt256(a);
         } else {

@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: MIT
-
 pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/utils/math/SafeMath.sol";
@@ -7,11 +6,12 @@ import "@openzeppelin/contracts/utils/Address.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
-
 import "./interfaces/IESBT.sol";
 
 interface ShaHld {
-    function getReferalState(address _account)
+    function getReferalState(
+        address _account
+    )
         external
         view
         returns (
@@ -32,10 +32,12 @@ interface IDataStore {
         uint256 _end
     ) external view returns (address[] memory);
 
-    function getAddUint(address _account, bytes32 key)
-        external
-        view
-        returns (uint256);
+    function getAddUint(
+        address _account,
+        bytes32 key
+    ) external view returns (uint256);
+
+    function getUint(bytes32 key) external view returns (uint256);
 }
 
 contract InfoHelper {
@@ -47,19 +49,30 @@ contract InfoHelper {
     bytes32 public constant ACCUM_SWAP = keccak256("ACCUM_SWAP");
     bytes32 public constant ACCUM_ADDLIQUIDITY =
         keccak256("ACCUM_ADDLIQUIDITY");
-    bytes32 public constant ACCUM_TRADING = keccak256("ACCUM_TRADING");
-
+    bytes32 public constant ACCUM_POSITIONSIZE =
+        keccak256("ACCUM_POSITIONSIZE");
     bytes32 public constant ACCUM_FEE_DISCOUNTED =
         keccak256("ACCUM_FEE_DISCOUNTED");
     bytes32 public constant ACCUM_FEE = keccak256("ACCUM_FEE");
+    bytes32 public constant FEE_REBATE_PERCENT =
+        keccak256("FEE_REBATE_PERCENT");
+    bytes32 public constant ACCUM_SCORE = keccak256("ACCUM_SCORE");
+    bytes32 public constant ACCUM_FEE_REBATED = keccak256("ACCUM_FEE_REBATED");
+
+    bytes32 public constant INTERVAL_RANK_UPDATE =
+        keccak256("INTERVAL_RANK_UPDATE");
+    bytes32 public constant INTERVAL_SCORE_UPDATE =
+        keccak256("INTERVAL_SCORE_UPDATE");
+    bytes32 public constant TIME_RANK_UPD = keccak256("TIME_RANK_UPD");
+    bytes32 public constant TIME_SOCRE_DEC = keccak256("TIME_SOCRE_DEC");
 
     uint256 private constant PRECISION_COMPLE = 10000;
+    uint256 public constant SCORE_PRECISION = 10 ** 18;
 
-    function getInvitedUser(address _ESBT, address _account)
-        public
-        view
-        returns (address[] memory, uint256[] memory)
-    {
+    function getInvitedUser(
+        address _ESBT,
+        address _account
+    ) public view returns (address[] memory, uint256[] memory) {
         (, address[] memory childs) = IESBT(_ESBT).getReferralForAccount(
             _account
         );
@@ -69,70 +82,59 @@ contract InfoHelper {
         for (uint256 i = 0; i < childs.length; i++) {
             infos[i * 3] = IESBT(_ESBT).createTime(childs[i]);
             infos[i * 3 + 1] = IESBT(_ESBT).userSizeSum(childs[i]);
-            infos[i * 3 + 2] = 0;
+            infos[i * 3 + 2] = IESBT(_ESBT).getScore(childs[i]);
         }
         return (childs, infos);
     }
 
-    function getBasicInfo(address _ESBT, address _account)
+    function getBasicInfo(
+        address _ESBT,
+        address _account
+    )
         public
         view
-        returns (string memory, uint256[] memory)
+        returns (string[] memory, address[] memory, uint256[] memory)
     {
-        uint256[] memory infos = new uint256[](7);
-        infos[0] = IESBT(_ESBT).getFeeDiscount(_account);
-        infos[1] = 0; //rebate
-
-        address[] memory validVaults = IDataStore(_ESBT).getAddressSetRoles(
-            VALID_VAULTS,
-            0,
-            IDataStore(_ESBT).getAddressSetCount(VALID_VAULTS)
+        (, address[] memory childs) = IESBT(_ESBT).getReferralForAccount(
+            _account
         );
 
-        for (uint256 i = 0; i < validVaults.length; i++) {
-            infos[2] = infos[3].add(
-                IDataStore(_ESBT).getAddUint(
-                    _account,
-                    IESBT(_ESBT).tradingKey(validVaults[i], ACCUM_SWAP)
-                )
-            );
-            infos[3] = infos[3].add(
-                IDataStore(_ESBT).getAddUint(
-                    _account,
-                    IESBT(_ESBT).tradingKey(validVaults[i], ACCUM_ADDLIQUIDITY)
-                )
-            );
-            infos[4] = infos[4].add(
-                IDataStore(_ESBT).getAddUint(
-                    _account,
-                    IESBT(_ESBT).tradingKey(validVaults[i], ACCUM_TRADING)
-                )
-            );
-            infos[5] = infos[5].add(
-                IDataStore(_ESBT).getAddUint(
-                    _account,
-                    IESBT(_ESBT).tradingKey(
-                        validVaults[i],
-                        ACCUM_FEE_DISCOUNTED
-                    )
-                )
-            );
-            infos[6] = infos[6].add(
-                IDataStore(_ESBT).getAddUint(
-                    _account,
-                    IESBT(_ESBT).tradingKey(validVaults[i], ACCUM_FEE)
-                )
-            );
-        }
+        uint256[] memory infos = new uint256[](17);
+        string[] memory infosStr = new string[](2);
+        (infos[0], infos[1]) = IESBT(_ESBT).accountToDisReb(_account);
+        infos[2] = IESBT(_ESBT).userSizeSum(_account);
+        infos[3] = IDataStore(_ESBT).getAddUint(_account, ACCUM_SWAP);
+        infos[4] = IDataStore(_ESBT).getAddUint(_account, ACCUM_ADDLIQUIDITY);
+        infos[5] = IDataStore(_ESBT).getAddUint(_account, ACCUM_POSITIONSIZE);
+        infos[6] = IDataStore(_ESBT).getAddUint(_account, ACCUM_FEE_DISCOUNTED);
+        infos[7] = IDataStore(_ESBT).getAddUint(_account, ACCUM_FEE);
+        infos[8] = IDataStore(_ESBT).getAddUint(_account, ACCUM_FEE_REBATED);
+        infos[9] = IESBT(_ESBT).getScore(_account);
+        infos[10] = IESBT(_ESBT).rank(_account);
+        infos[11] = IESBT(_ESBT).createTime(_account);
+        infos[12] = IESBT(_ESBT).addressToTokenID(_account);
 
-        return (IESBT(_ESBT).nickName(_account), infos);
+        infos[13] = IDataStore(_ESBT).getUint(INTERVAL_RANK_UPDATE);
+        infos[14] = IDataStore(_ESBT).getUint(INTERVAL_SCORE_UPDATE);
+
+        infos[15] = IDataStore(_ESBT).getAddUint(_account, TIME_RANK_UPD).add(
+            infos[13]
+        );
+        infos[15] = infos[15] > infos[13] ? infos[15] : 0;
+        infos[16] = IDataStore(_ESBT).getAddUint(_account, TIME_SOCRE_DEC).add(
+            infos[14]
+        );
+        infos[16] = infos[16] > infos[14] ? infos[16] : 0;
+
+        infosStr[0] = IESBT(_ESBT).nickName(_account);
+        infosStr[1] = IESBT(_ESBT).getRefCode(_account);
+        return (infosStr, childs, infos);
     }
 
-    function needUpdate(address _shareAct, address _account)
-        public
-        view
-        returns (uint256)
-    {
+    function needUpdate(
+        address _shareAct,
+        address _account
+    ) public view returns (uint256) {
         (
             uint256 _refNum,
             uint256[] memory _compList,

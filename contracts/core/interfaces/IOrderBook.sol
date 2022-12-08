@@ -3,7 +3,10 @@
 pragma solidity ^0.8.0;
 
 interface IOrderBook {
-    function getSwapOrder(address _account, uint256 _orderIndex)
+    function getSwapOrder(
+        address _account,
+        uint256 _orderIndex
+    )
         external
         view
         returns (
@@ -18,7 +21,10 @@ interface IOrderBook {
             uint256 executionFee
         );
 
-    function getIncreaseOrder(address _account, uint256 _orderIndex)
+    function getIncreaseOrder(
+        address _account,
+        uint256 _orderIndex
+    )
         external
         view
         returns (
@@ -33,7 +39,10 @@ interface IOrderBook {
             uint256 executionFee
         );
 
-    function getDecreaseOrder(address _account, uint256 _orderIndex)
+    function getDecreaseOrder(
+        address _account,
+        uint256 _orderIndex
+    )
         external
         view
         returns (
@@ -47,21 +56,9 @@ interface IOrderBook {
             uint256 executionFee
         );
 
-    function executeSwapOrder(
-        address,
-        uint256,
-        address payable
-    ) external;
+    function executeSwapOrder(address, uint256, address payable) external;
 
-    function executeDecreaseOrder(
-        address,
-        uint256,
-        address payable
-    ) external;
+    function executeDecreaseOrder(address, uint256, address payable) external;
 
-    function executeIncreaseOrder(
-        address,
-        uint256,
-        address payable
-    ) external;
+    function executeIncreaseOrder(address, uint256, address payable) external;
 }

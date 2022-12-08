@@ -43,10 +43,9 @@ contract OrderBookReader {
                 uint256 sizeDelta,
                 bool isLong,
                 uint256 triggerPrice,
-                bool triggerAboveThreshold,
+                bool triggerAboveThreshold, // uint256 executionFee
 
-            ) = // uint256 executionFee
-                orderBook.getIncreaseOrder(vars.account, vars.index);
+            ) = orderBook.getIncreaseOrder(vars.account, vars.index);
 
             uintProps[vars.i * vars.uintLength] = uint256(purchaseTokenAmount);
             uintProps[vars.i * vars.uintLength + 1] = uint256(sizeDelta);
@@ -91,10 +90,9 @@ contract OrderBookReader {
                 uint256 sizeDelta,
                 bool isLong,
                 uint256 triggerPrice,
-                bool triggerAboveThreshold,
+                bool triggerAboveThreshold, // uint256 executionFee
 
-            ) = // uint256 executionFee
-                orderBook.getDecreaseOrder(vars.account, vars.index);
+            ) = orderBook.getDecreaseOrder(vars.account, vars.index);
 
             uintProps[vars.i * vars.uintLength] = uint256(collateralDelta);
             uintProps[vars.i * vars.uintLength + 1] = uint256(sizeDelta);
@@ -139,10 +137,9 @@ contract OrderBookReader {
                 uint256 minOut,
                 uint256 triggerRatio,
                 bool triggerAboveThreshold,
-                bool shouldUnwrap,
+                bool shouldUnwrap, // uint256 executionFee
 
-            ) = // uint256 executionFee
-                orderBook.getSwapOrder(vars.account, vars.index);
+            ) = orderBook.getSwapOrder(vars.account, vars.index);
 
             uintProps[vars.i * vars.uintLength] = uint256(amountIn);
             uintProps[vars.i * vars.uintLength + 1] = uint256(minOut);

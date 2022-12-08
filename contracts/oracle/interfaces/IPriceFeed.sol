@@ -13,14 +13,7 @@ interface IPriceFeed {
 
     function latestTimestamp() external view returns (uint256);
 
-    function getRoundData(uint80 roundId)
-        external
-        view
-        returns (
-            uint80,
-            int256,
-            uint256,
-            uint256,
-            uint80
-        );
+    function getRoundData(
+        uint80 roundId
+    ) external view returns (uint80, int256, uint256, uint256, uint80);
 }

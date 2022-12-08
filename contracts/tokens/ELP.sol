@@ -8,7 +8,6 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/security/Pausable.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
-
 import "./interfaces/IELP.sol";
 import "./interfaces/IMintable.sol";
 import "../core/interfaces/IVault.sol";
@@ -25,6 +24,7 @@ contract ELP is IERC20, IMintable, ReentrancyGuard, IELP, Ownable {
     uint256 public override totalSupply;
     uint256 public nonStakingSupply;
 
+    // address public EUSDDistributor;
     mapping(address => bool) public override isMinter;
 
     mapping(address => uint256) public balances;
@@ -38,17 +38,17 @@ contract ELP is IERC20, IMintable, ReentrancyGuard, IELP, Ownable {
 
     //----- start of EDIST
 
-    uint256 public constant PRICE_TO_EUSD = 10**12; //ATTENTION: must be same as vault.
+    uint256 public constant PRICE_TO_EUSD = 10 ** 12; //ATTENTION: must be same as vault.
     uint256 public constant fundingInterval = 24 hours; //ATTENTION: must be same as vault.
+
     bool public isSwapEnabled = true;
     bool public isInitialized;
 
-    address public vault;
+    address public override vault;
     address public eusd;
-    address public elp;
     address public edeStakingPool;
     address public elpStakingTracker;
-    uint256 public feeToPoolRatio = 4000; // 30%;
+    uint256 public feeToPoolRatio = 4000; // 40%;
     uint256 public feeToPoolPrec = 10000; // 100%;
     uint256 public EUSDTotalAmount;
     uint256 public EUSDEDEReward;
@@ -64,7 +64,7 @@ contract ELP is IERC20, IMintable, ReentrancyGuard, IELP, Ownable {
 
     uint256 public lastDistributionTime;
     uint256 public cumulativeRewardPerToken;
-    uint256 public constant REWARD_PRECISION = 10**20;
+    uint256 public constant REWARD_PRECISION = 10 ** 20;
 
     mapping(address => uint256) public claimableReward;
     mapping(address => uint256) public previousCumulatedRewardPerToken;
@@ -76,11 +76,7 @@ contract ELP is IERC20, IMintable, ReentrancyGuard, IELP, Ownable {
 
     //----- end of EDIST
 
-    constructor(
-        string memory _name,
-        string memory _symbol,
-        uint256 /*_initialSupply*/
-    ) {
+    constructor(string memory _name, string memory _symbol) {
         name = _name;
         symbol = _symbol;
     }
@@ -90,36 +86,38 @@ contract ELP is IERC20, IMintable, ReentrancyGuard, IELP, Ownable {
         _;
     }
 
-    function setMinter(address _minter, bool _isActive)
-        external
-        override
-        onlyOwner
-    {
+    function setMinter(
+        address _minter,
+        bool _isActive
+    ) external override onlyOwner {
         isMinter[_minter] = _isActive;
     }
 
-    function mint(address _account, uint256 _amount)
-        external
-        override
-        onlyMinter
-    {
+    function setFeeToPoolRatio(uint256 _feeToPoolRatio) external onlyOwner {
+        require(_feeToPoolRatio < feeToPoolPrec, "x");
+        feeToPoolRatio = _feeToPoolRatio;
+    }
+
+    function mint(
+        address _account,
+        uint256 _amount
+    ) external override onlyMinter {
         _updateRewardsLight(_account);
         _mint(_account, _amount);
     }
 
-    function burn(address _account, uint256 _amount)
-        external
-        override
-        onlyMinter
-    {
+    function burn(
+        address _account,
+        uint256 _amount
+    ) external override onlyMinter {
         _updateRewardsLight(_account);
         _burn(_account, _amount);
     }
 
-    function setInfo(string memory _name, string memory _symbol)
-        external
-        onlyOwner
-    {
+    function setInfo(
+        string memory _name,
+        string memory _symbol
+    ) external onlyOwner {
         name = _name;
         symbol = _symbol;
     }
@@ -138,40 +136,34 @@ contract ELP is IERC20, IMintable, ReentrancyGuard, IELP, Ownable {
         isHandler[_handler] = _isActive;
     }
 
-    function balanceOf(address _account)
-        external
-        view
-        override
-        returns (uint256)
-    {
+    function balanceOf(
+        address _account
+    ) external view override returns (uint256) {
         return balances[_account];
     }
 
-    function transfer(address _recipient, uint256 _amount)
-        external
-        override
-        returns (bool)
-    {
+    function transfer(
+        address _recipient,
+        uint256 _amount
+    ) external override returns (bool) {
+        require(msg.sender != _recipient, "Self transfer is not allowed");
         _updateRewards(msg.sender);
         _updateRewards(_recipient);
         _transfer(msg.sender, _recipient, _amount);
         return true;
     }
 
-    function allowance(address _owner, address _spender)
-        external
-        view
-        override
-        returns (uint256)
-    {
+    function allowance(
+        address _owner,
+        address _spender
+    ) external view override returns (uint256) {
         return allowances[_owner][_spender];
     }
 
-    function approve(address _spender, uint256 _amount)
-        external
-        override
-        returns (bool)
-    {
+    function approve(
+        address _spender,
+        uint256 _amount
+    ) external override returns (bool) {
         _approve(msg.sender, _spender, _amount);
         return true;
     }
@@ -279,10 +271,10 @@ contract ELP is IERC20, IMintable, ReentrancyGuard, IELP, Ownable {
         tokenDecimals[eusd] = _eusdDecimals;
     }
 
-    function updateStakingAmount(address _account, uint256 _amount)
-        external
-        override
-    {
+    function updateStakingAmount(
+        address _account,
+        uint256 _amount
+    ) external override {
         require(msg.sender == elpStakingTracker, "invalid update handler");
         stakedAmount[_account] = _amount;
     }
@@ -308,10 +300,10 @@ contract ELP is IERC20, IMintable, ReentrancyGuard, IELP, Ownable {
         require(whitelistedTokens[_token], "Whiltelist required");
     }
 
-    function setTokenConfig(address _token, uint256 _tokenDecimals)
-        external
-        onlyOwner
-    {
+    function setTokenConfig(
+        address _token,
+        uint256 _tokenDecimals
+    ) external onlyOwner {
         // increment token count for the first time
         if (!whitelistedTokens[_token]) {
             allWhitelistedTokens.push(_token);
@@ -324,12 +316,9 @@ contract ELP is IERC20, IMintable, ReentrancyGuard, IELP, Ownable {
         return IVault(vault).feeReservesUSD();
     }
 
-    function TokenFeeReserved(address _token)
-        external
-        view
-        override
-        returns (uint256)
-    {
+    function TokenFeeReserved(
+        address _token
+    ) external view override returns (uint256) {
         return
             IVault(vault).feeReserves(_token).sub(
                 IVault(vault).feeSold(_token)
@@ -362,9 +351,9 @@ contract ELP is IERC20, IMintable, ReentrancyGuard, IELP, Ownable {
             );
             cumulativeRewardPerToken = _cumulativeRewardPerToken;
         }
+      
 
         if (_account != address(0)) {
-            // console.log("UpdAccount : [%s]: %s",_account,  previousCumulatedRewardPerToken[_account] );
             uint256 accountAmount = balances[_account].add(
                 stakedAmount[_account]
             );
@@ -394,25 +383,18 @@ contract ELP is IERC20, IMintable, ReentrancyGuard, IELP, Ownable {
     }
 
     function claim(address _receiver) public nonReentrant returns (uint256) {
-        // console.log("TOTAl EUSD: %s", EUSDELPReward);
         return _claim(msg.sender, _receiver);
     }
 
-    function claimForAccount(address _account)
-        public
-        override
-        nonReentrant
-        returns (uint256)
-    {
+    function claimForAccount(
+        address _account
+    ) public override nonReentrant returns (uint256) {
         return _claim(_account, _account);
     }
 
-    function claimable(address _account)
-        external
-        view
-        override
-        returns (uint256)
-    {
+    function claimable(
+        address _account
+    ) external view override returns (uint256) {
         uint256 _mintEUSDAmount = IVault(vault).claimableFeeReserves().div(
             PRICE_TO_EUSD
         );
@@ -440,10 +422,10 @@ contract ELP is IERC20, IMintable, ReentrancyGuard, IELP, Ownable {
         return _claimableReward;
     }
 
-    function _claim(address _account, address _receiver)
-        private
-        returns (uint256)
-    {
+    function _claim(
+        address _account,
+        address _receiver
+    ) private returns (uint256) {
         _updateRewards(_account);
         uint256 tokenAmount = claimableReward[_account];
         if (tokenAmount > 0) {
@@ -484,11 +466,10 @@ contract ELP is IERC20, IMintable, ReentrancyGuard, IELP, Ownable {
         return thisRewardAmount;
     }
 
-    function getFeeAmount(uint64 _stasticDays, uint64 _shiftDays)
-        external
-        view
-        returns (uint256)
-    {
+    function getFeeAmount(
+        uint64 _stasticDays,
+        uint64 _shiftDays
+    ) external view returns (uint256) {
         require(_stasticDays > 0 && _stasticDays < 30, "invalid days");
         require(_shiftDays >= 0 && _shiftDays < 30, "invalid _shiftDays");
         uint256 currentIndex = block.timestamp.div(fundingInterval).sub(
@@ -505,14 +486,13 @@ contract ELP is IERC20, IMintable, ReentrancyGuard, IELP, Ownable {
         return _feeTotal.div(PRICE_TO_EUSD);
     }
 
-    function adjustForEUSDDecimals(uint256 _amount, address _tokenDiv)
-        public
-        view
-        returns (uint256)
-    {
+    function adjustForEUSDDecimals(
+        uint256 _amount,
+        address _tokenDiv
+    ) public view returns (uint256) {
         return
-            _amount.mul(10**tokenDecimals[eusd]).div(
-                10**tokenDecimals[_tokenDiv]
+            _amount.mul(10 ** tokenDecimals[eusd]).div(
+                10 ** tokenDecimals[_tokenDiv]
             );
     }
 

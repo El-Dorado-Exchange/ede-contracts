@@ -10,16 +10,16 @@ contract randomSource is Ownable {
     using SafeMath for uint16;
 
     uint256 private randNonce;
-    uint256 private constant MAX_NONCE = 10**30;
+    uint256 private constant MAX_NONCE = 354183101105107135153161173;
 
     function seedMod(uint256 _modulus) public returns (uint256) {
         return _seed() % _modulus;
     }
 
-    function seedModU16List(uint256 _modulus, uint256 _amount)
-        public
-        returns (uint16[] memory)
-    {
+    function seedModU16List(
+        uint256 _modulus,
+        uint256 _amount
+    ) public returns (uint16[] memory) {
         require(_modulus < 65535, "invalid mod");
         uint16[] memory res = new uint16[](_amount);
         for (uint i = 0; i < _amount; i++) {
@@ -32,10 +32,9 @@ contract randomSource is Ownable {
         return _seed();
     }
 
-    function genWithWeightDistributionU16(uint16[] memory _weightList)
-        external
-        returns (uint16)
-    {
+    function genWithWeightDistributionU16(
+        uint16[] memory _weightList
+    ) external returns (uint16) {
         uint16[] memory sumList = new uint16[](_weightList.length + 1);
         sumList[0] = 0;
         for (uint16 i = 0; i < _weightList.length; i++) {
@@ -51,10 +50,9 @@ contract randomSource is Ownable {
         return _loc;
     }
 
-    function genWithWSumDistributionU16Sum(uint16[] memory _sumList)
-        public
-        returns (uint16)
-    {
+    function genWithWSumDistributionU16Sum(
+        uint16[] memory _sumList
+    ) public returns (uint16) {
         uint16 _value = uint16(seedMod(_sumList[_sumList.length - 1]));
         (uint16 _loc, ) = _getLocU16(
             _sumList,
@@ -82,15 +80,14 @@ contract randomSource is Ownable {
             keccak256(
                 abi.encodePacked(
                     block.timestamp,
-                    block.timestamp,
-                    msg.sender,
                     randNonce.mul(13),
+                    msg.sender,
                     randNonce
                 )
             )
         );
 
-        randNonce = randNonce.add(res.div(17)).mod(MAX_NONCE);
+        randNonce = randNonce.add(res.div(75017)).mod(MAX_NONCE);
         return res;
     }
 

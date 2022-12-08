@@ -18,7 +18,8 @@ contract RewardTracker is
     using SafeMath for uint256;
     using SafeERC20 for IERC20;
 
-    uint256 public constant REWARD_PRECISION = 10**20;
+    uint256 public constant REWARD_PRECISION = 10 ** 20;
+
     uint256 public lastDistributionTime;
     uint256 public override poolTokenRewardPerInterval;
     uint256 public cumulativeRewardPerToken;
@@ -63,43 +64,36 @@ contract RewardTracker is
         return totalDepositSupply;
     }
 
-    function updatePoolRewardRate(uint256 _poolRewardPerInterval)
-        external
-        nonReentrant
-    {
+    function updatePoolRewardRate(
+        uint256 _poolRewardPerInterval
+    ) external nonReentrant {
         _validateHandler();
         poolTokenRewardPerInterval = _poolRewardPerInterval;
         _updateRewards(address(0));
     }
 
-    function setInPrivateStakingMode(bool _inPrivateStakingMode)
-        external
-        onlyOwner
-    {
+    function setInPrivateStakingMode(
+        bool _inPrivateStakingMode
+    ) external onlyOwner {
         inPrivateStakingMode = _inPrivateStakingMode;
     }
 
-    function setInPrivateClaimingMode(bool _inPrivateClaimingMode)
-        external
-        onlyOwner
-    {
+    function setInPrivateClaimingMode(
+        bool _inPrivateClaimingMode
+    ) external onlyOwner {
         inPrivateClaimingMode = _inPrivateClaimingMode;
     }
 
-    function balanceOf(address _account)
-        external
-        view
-        override
-        returns (uint256)
-    {
+    function balanceOf(
+        address _account
+    ) external view override returns (uint256) {
         return stakedAmounts[_account];
     }
 
-    function stake(address _depositToken, uint256 _amount)
-        external
-        override
-        nonReentrant
-    {
+    function stake(
+        address _depositToken,
+        uint256 _amount
+    ) external override nonReentrant {
         if (inPrivateStakingMode) {
             revert("RewardTracker: action not enabled");
         }
@@ -118,11 +112,10 @@ contract RewardTracker is
         _stake(_fundingAccount, _account, _depositToken, _amount);
     }
 
-    function unstake(address _depositToken, uint256 _amount)
-        external
-        override
-        nonReentrant
-    {
+    function unstake(
+        address _depositToken,
+        uint256 _amount
+    ) external override nonReentrant {
         if (inPrivateStakingMode) {
             revert("RewardTracker: action not enabled");
         }
@@ -141,42 +134,32 @@ contract RewardTracker is
         _unstake(_account, _depositToken, _amount, _receiver);
     }
 
-    function updateRewardsForUser(address _account)
-        external
-        override
-        nonReentrant
-    {
+    function updateRewardsForUser(
+        address _account
+    ) external override nonReentrant {
         _updateRewards(_account);
     }
 
-    function claim(address _receiver)
-        external
-        override
-        nonReentrant
-        returns (uint256)
-    {
+    function claim(
+        address _receiver
+    ) external override nonReentrant returns (uint256) {
         if (inPrivateClaimingMode) {
             revert("RewardTracker: action not enabled");
         }
         return _claim(msg.sender, _receiver);
     }
 
-    function claimForAccount(address _account, address _receiver)
-        external
-        override
-        nonReentrant
-        returns (uint256)
-    {
+    function claimForAccount(
+        address _account,
+        address _receiver
+    ) external override nonReentrant returns (uint256) {
         _validateHandler();
         return _claim(_account, _receiver);
     }
 
-    function claimable(address _account)
-        external
-        view
-        override
-        returns (uint256)
-    {
+    function claimable(
+        address _account
+    ) external view override returns (uint256) {
         uint256 stakedAmount = stakedAmounts[_account];
         uint256 supply = totalDepositSupply;
         if (supply < 1) {

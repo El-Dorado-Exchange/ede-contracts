@@ -27,8 +27,9 @@ interface IFastPriceFeed {
 
     function setIsSpreadEnabled(bool _isSpreadEnabled) external;
 
-    function setMaxDeviationBasisPoints(uint256 _maxDeviationBasisPoints)
-        external;
+    function setMaxDeviationBasisPoints(
+        uint256 _maxDeviationBasisPoints
+    ) external;
 
     function setMaxCumulativeDeltaDiffs(
         address[] memory _tokens,

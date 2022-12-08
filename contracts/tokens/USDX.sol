@@ -2,42 +2,28 @@
 
 pragma solidity ^0.8.0;
 
-import "./interfaces/IUSDX.sol";
-import "./YieldToken.sol";
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 
-contract USDX is YieldToken, IUSDX {
-    mapping(address => bool) public vaults;
+contract USDX is ERC20, Ownable {
+    constructor() ERC20("USDX", "USDX") {}
 
-    modifier onlyVault() {
-        require(vaults[msg.sender], "USDX: forbidden");
+    mapping(address => bool) public isMinter;
+
+    modifier onlyMinter() {
+        require(isMinter[msg.sender], "MintableBaseToken: forbidden");
         _;
     }
 
-    constructor() YieldToken("USD EDE", "USDX-EDE", 0) {
-        vaults[msg.sender] = true;
+    function setMinter(address _minter, bool _isActive) external onlyOwner {
+        isMinter[_minter] = _isActive;
     }
 
-    function addVault(address _vault) external override onlyOwner {
-        vaults[_vault] = true;
-    }
-
-    function removeVault(address _vault) external override onlyOwner {
-        vaults[_vault] = false;
-    }
-
-    function mint(address _account, uint256 _amount)
-        external
-        override
-        onlyVault
-    {
+    function mint(address _account, uint256 _amount) external onlyMinter {
         _mint(_account, _amount);
     }
 
-    function burn(address _account, uint256 _amount)
-        external
-        override
-        onlyVault
-    {
-        _burn(_account, _amount);
+    function burn(uint256 _amount) external onlyMinter {
+        _burn(msg.sender, _amount);
     }
 }

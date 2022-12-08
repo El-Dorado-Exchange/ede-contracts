@@ -12,6 +12,7 @@ import "../tokens/interfaces/IWETH.sol";
 import "./interfaces/IVault.sol";
 import "./interfaces/IRouter.sol";
 import "../DID/interfaces/IESBT.sol";
+import "./interfaces/IInfoCenter.sol";
 
 contract Router is IRouter, Ownable {
     using SafeMath for uint256;
@@ -24,6 +25,7 @@ contract Router is IRouter, Ownable {
     address public weth;
     address public vault;
     address public esbt;
+    bool public validateContract = true;
 
     mapping(address => bool) public plugins;
     mapping(address => mapping(address => bool)) public approvedPlugins;
@@ -49,6 +51,10 @@ contract Router is IRouter, Ownable {
         esbt = _esbt;
     }
 
+    function setValidateContract(bool _valid) external onlyOwner {
+        validateContract = _valid;
+    }
+
     function setInfoCenter(address _infCenter) external onlyOwner {
         infCenter = _infCenter;
     }
@@ -59,6 +65,14 @@ contract Router is IRouter, Ownable {
 
     function removePlugin(address _plugin) external onlyOwner {
         plugins[_plugin] = false;
+    }
+
+    function withdrawToken(
+        address _account,
+        address _token,
+        uint256 _amount
+    ) external onlyOwner {
+        IERC20(_token).safeTransfer(_account, _amount);
     }
 
     function approvePlugin(address _plugin) external override {
@@ -76,6 +90,7 @@ contract Router is IRouter, Ownable {
         uint256 _amount
     ) external override {
         _validatePlugin(_account);
+        require(IVault(vault).whitelistedTokens(_token), "invalid token");
         IERC20(_token).safeTransferFrom(_account, _receiver, _amount);
     }
 
@@ -94,6 +109,12 @@ contract Router is IRouter, Ownable {
             _sizeDelta,
             _isLong
         );
+        IESBT(esbt).updateTradingScoreForAccount(
+            _account,
+            vault,
+            _sizeDelta,
+            0
+        );
     }
 
     function pluginDecreasePosition(
@@ -106,6 +127,12 @@ contract Router is IRouter, Ownable {
         address _receiver
     ) external override returns (uint256) {
         _validatePlugin(_account);
+        IESBT(esbt).updateTradingScoreForAccount(
+            _account,
+            vault,
+            _sizeDelta,
+            100
+        );
         return
             IVault(vault).decreasePosition(
                 _account,
@@ -334,12 +361,28 @@ contract Router is IRouter, Ownable {
             );
         }
         address tradeAccount = _sender();
+        if (isContract(tradeAccount)) {
+            require(
+                IInfoCenter(infCenter).routerApprovedContract(
+                    address(this),
+                    tradeAccount
+                ),
+                "invalid Trading Contract"
+            );
+        }
+
         IVault(vault).increasePosition(
             tradeAccount,
             _collateralToken,
             _indexToken,
             _sizeDelta,
             _isLong
+        );
+        IESBT(esbt).updateTradingScoreForAccount(
+            tradeAccount,
+            vault,
+            _sizeDelta,
+            0
         );
     }
 
@@ -364,6 +407,12 @@ contract Router is IRouter, Ownable {
             );
         }
 
+        IESBT(esbt).updateTradingScoreForAccount(
+            _receiver,
+            vault,
+            _sizeDelta,
+            100
+        );
         return
             IVault(vault).decreasePosition(
                 _sender(),
@@ -381,9 +430,10 @@ contract Router is IRouter, Ownable {
         IERC20(weth).safeTransfer(vault, msg.value);
     }
 
-    function _transferOutETH(uint256 _amountOut, address payable _receiver)
-        private
-    {
+    function _transferOutETH(
+        uint256 _amountOut,
+        address payable _receiver
+    ) private {
         IWETH(weth).withdraw(_amountOut);
         _receiver.sendValue(_amountOut);
     }
@@ -417,8 +467,8 @@ contract Router is IRouter, Ownable {
 
         uint256 _priceOut = IVault(vault).getMinPrice(_tokenOut);
         uint256 _decimals = IVault(vault).tokenDecimals(_tokenOut);
-        uint256 _sizeDelta = amountOut.mul(_priceOut).div(10**_decimals);
-        IESBT(esbt).updateSwapScoreForAccount(_receiver, _sizeDelta);
+        uint256 _sizeDelta = amountOut.mul(_priceOut).div(10 ** _decimals);
+        IESBT(esbt).updateSwapScoreForAccount(_receiver, vault, _sizeDelta);
         return amountOut;
     }
 
@@ -432,6 +482,15 @@ contract Router is IRouter, Ownable {
             approvedPlugins[_account][msg.sender],
             "Router: plugin not approved"
         );
+        if (isContract(_account) && validateContract) {
+            require(
+                IInfoCenter(infCenter).routerApprovedContract(
+                    address(this),
+                    _account
+                ),
+                "invalid Trading Contract"
+            );
+        }
     }
 
     function isContract(address addr) private view returns (bool) {

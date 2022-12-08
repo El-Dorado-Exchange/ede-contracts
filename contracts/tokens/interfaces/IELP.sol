@@ -14,4 +14,6 @@ interface IELP {
     function TokenFeeReserved(address _token) external view returns (uint256);
 
     function withdrawToEDEPool() external returns (uint256);
+
+    function vault() external returns (address);
 }

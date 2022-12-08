@@ -238,10 +238,10 @@ interface IgEDE {
 
     function get_last_user_slope(address addr) external view returns (int128);
 
-    function user_point_history__ts(address _addr, uint256 _idx)
-        external
-        view
-        returns (uint256);
+    function user_point_history__ts(
+        address _addr,
+        uint256 _idx
+    ) external view returns (uint256);
 
     function locked__end(address _addr) external view returns (uint256);
 
@@ -259,15 +259,15 @@ interface IgEDE {
 
     function balanceOf(address addr) external view returns (uint256);
 
-    function balanceOf(address addr, uint256 _t)
-        external
-        view
-        returns (uint256);
+    function balanceOf(
+        address addr,
+        uint256 _t
+    ) external view returns (uint256);
 
-    function balanceOfAt(address addr, uint256 _block)
-        external
-        view
-        returns (uint256);
+    function balanceOfAt(
+        address addr,
+        uint256 _block
+    ) external view returns (uint256);
 
     function totalSupply() external view returns (uint256);
 
@@ -291,7 +291,9 @@ interface IgEDE {
 
     function epoch() external view returns (uint256);
 
-    function point_history(uint256 arg0)
+    function point_history(
+        uint256 arg0
+    )
         external
         view
         returns (
@@ -302,7 +304,10 @@ interface IgEDE {
             uint256 fxs_amt
         );
 
-    function user_point_history(address arg0, uint256 arg1)
+    function user_point_history(
+        address arg0,
+        uint256 arg1
+    )
         external
         view
         returns (
@@ -344,11 +349,7 @@ interface IgEDE {
 
 // helper methods for interacting with ERC20 tokens and sending ETH that do not consistently return true/false
 library TransferHelper {
-    function safeApprove(
-        address token,
-        address to,
-        uint value
-    ) internal {
+    function safeApprove(address token, address to, uint value) internal {
         // bytes4(keccak256(bytes('approve(address,uint256)')));
         (bool success, bytes memory data) = token.call(
             abi.encodeWithSelector(0x095ea7b3, to, value)
@@ -359,11 +360,7 @@ library TransferHelper {
         );
     }
 
-    function safeTransfer(
-        address token,
-        address to,
-        uint value
-    ) internal {
+    function safeTransfer(address token, address to, uint value) internal {
         // bytes4(keccak256(bytes('transfer(address,uint256)')));
         (bool success, bytes memory data) = token.call(
             abi.encodeWithSelector(0xa9059cbb, to, value)
@@ -444,9 +441,10 @@ interface IERC20 {
      *
      * Emits a {Transfer} event.
      */
-    function transfer(address recipient, uint256 amount)
-        external
-        returns (bool);
+    function transfer(
+        address recipient,
+        uint256 amount
+    ) external returns (bool);
 
     /**
      * @dev Returns the remaining number of tokens that `spender` will be
@@ -455,10 +453,10 @@ interface IERC20 {
      *
      * This value changes when {approve} or {transferFrom} are called.
      */
-    function allowance(address owner, address spender)
-        external
-        view
-        returns (uint256);
+    function allowance(
+        address owner,
+        address spender
+    ) external view returns (uint256);
 
     /**
      * @dev Sets `amount` as the allowance of `spender` over the caller's tokens.
@@ -594,10 +592,10 @@ library Address {
      *
      * _Available since v3.1._
      */
-    function functionCall(address target, bytes memory data)
-        internal
-        returns (bytes memory)
-    {
+    function functionCall(
+        address target,
+        bytes memory data
+    ) internal returns (bytes memory) {
         return functionCall(target, data, "Address: low-level call failed");
     }
 
@@ -671,11 +669,10 @@ library Address {
      *
      * _Available since v3.3._
      */
-    function functionStaticCall(address target, bytes memory data)
-        internal
-        view
-        returns (bytes memory)
-    {
+    function functionStaticCall(
+        address target,
+        bytes memory data
+    ) internal view returns (bytes memory) {
         return
             functionStaticCall(
                 target,
@@ -708,10 +705,10 @@ library Address {
      *
      * _Available since v3.4._
      */
-    function functionDelegateCall(address target, bytes memory data)
-        internal
-        returns (bytes memory)
-    {
+    function functionDelegateCall(
+        address target,
+        bytes memory data
+    ) internal returns (bytes memory) {
         return
             functionDelegateCall(
                 target,
@@ -811,7 +808,7 @@ contract ERC20 is Context, IERC20 {
      * All three of these values are immutable: they can only be set once during
      * construction.
      */
-    constructor(string memory __name, string memory __symbol) public {
+    constructor(string memory __name, string memory __symbol) {
         _name = __name;
         _symbol = __symbol;
         _decimals = 18;
@@ -871,12 +868,10 @@ contract ERC20 is Context, IERC20 {
      * - `recipient` cannot be the zero address.
      * - the caller must have a balance of at least `amount`.
      */
-    function transfer(address recipient, uint256 amount)
-        public
-        virtual
-        override
-        returns (bool)
-    {
+    function transfer(
+        address recipient,
+        uint256 amount
+    ) public virtual override returns (bool) {
         _transfer(_msgSender(), recipient, amount);
         return true;
     }
@@ -884,13 +879,10 @@ contract ERC20 is Context, IERC20 {
     /**
      * @dev See {IERC20-allowance}.
      */
-    function allowance(address owner, address spender)
-        public
-        view
-        virtual
-        override
-        returns (uint256)
-    {
+    function allowance(
+        address owner,
+        address spender
+    ) public view virtual override returns (uint256) {
         return _allowances[owner][spender];
     }
 
@@ -901,12 +893,10 @@ contract ERC20 is Context, IERC20 {
      *
      * - `spender` cannot be the zero address.approve(address spender, uint256 amount)
      */
-    function approve(address spender, uint256 amount)
-        public
-        virtual
-        override
-        returns (bool)
-    {
+    function approve(
+        address spender,
+        uint256 amount
+    ) public virtual override returns (bool) {
         _approve(_msgSender(), spender, amount);
         return true;
     }
@@ -952,11 +942,10 @@ contract ERC20 is Context, IERC20 {
      *
      * - `spender` cannot be the zero address.
      */
-    function increaseAllowance(address spender, uint256 addedValue)
-        public
-        virtual
-        returns (bool)
-    {
+    function increaseAllowance(
+        address spender,
+        uint256 addedValue
+    ) public virtual returns (bool) {
         _approve(
             _msgSender(),
             spender,
@@ -979,11 +968,10 @@ contract ERC20 is Context, IERC20 {
      * - `spender` must have allowance for the caller of at least
      * `subtractedValue`.
      */
-    function decreaseAllowance(address spender, uint256 subtractedValue)
-        public
-        virtual
-        returns (bool)
-    {
+    function decreaseAllowance(
+        address spender,
+        uint256 subtractedValue
+    ) public virtual returns (bool) {
         _approve(
             _msgSender(),
             spender,
@@ -1179,11 +1167,7 @@ library SafeERC20 {
     using SafeMath for uint256;
     using Address for address;
 
-    function safeTransfer(
-        IERC20 token,
-        address to,
-        uint256 value
-    ) internal {
+    function safeTransfer(IERC20 token, address to, uint256 value) internal {
         _callOptionalReturn(
             token,
             abi.encodeWithSelector(token.transfer.selector, to, value)
@@ -1326,7 +1310,7 @@ abstract contract ReentrancyGuard {
 
     uint256 private _status;
 
-    constructor() internal {
+    constructor() {
         _status = _NOT_ENTERED;
     }
 
@@ -1359,7 +1343,7 @@ contract Owned {
     address public owner;
     address public nominatedOwner;
 
-    constructor(address _owner) public {
+    constructor(address _owner) {
         require(_owner != address(0), "Owner address cannot be 0");
         owner = _owner;
         emit OwnerChanged(address(0), _owner);
@@ -1512,7 +1496,9 @@ contract gEdeYieldDistributor is Owned, ReentrancyGuard {
             );
     }
 
-    function eligibleCurrentgEDE(address account)
+    function eligibleCurrentgEDE(
+        address account
+    )
         public
         view
         returns (uint256 eligible_gEDE_bal, uint256 stored_ending_timestamp)
@@ -1690,7 +1676,9 @@ contract gEdeYieldDistributor is Owned, ReentrancyGuard {
         lastRewardClaimTime[msg.sender] = block.timestamp;
     }
 
-    function getYieldUser(address from)
+    function getYieldUser(
+        address from
+    )
         external
         nonReentrant
         notYieldCollectionPaused
@@ -1709,7 +1697,6 @@ contract gEdeYieldDistributor is Owned, ReentrancyGuard {
         lastRewardClaimTime[from] = block.timestamp;
     }
 
-    //预估一周收益
     function estimateWeekYield(address account) public view returns (uint256) {
         uint256 currentProfit = earned(account);
 
@@ -1768,10 +1755,10 @@ contract gEdeYieldDistributor is Owned, ReentrancyGuard {
     /* ========== RESTRICTED FUNCTIONS ========== */
 
     // Added to support recovering LP Yield and other mistaken tokens from other systems to be distributed to holders
-    function recoverERC20(address tokenAddress, uint256 tokenAmount)
-        external
-        onlyByOwnGov
-    {
+    function recoverERC20(
+        address tokenAddress,
+        uint256 tokenAmount
+    ) external onlyByOwnGov {
         // Only the owner address can ever receive the recovery withdrawal
         TransferHelper.safeTransfer(tokenAddress, owner, tokenAmount);
         emit RecoveredERC20(tokenAddress, tokenAmount);
@@ -1790,10 +1777,10 @@ contract gEdeYieldDistributor is Owned, ReentrancyGuard {
         greylist[_address] = !(greylist[_address]);
     }
 
-    function setScale(uint256 _scaleBalance, uint256 _denominator)
-        external
-        onlyByOwnGov
-    {
+    function setScale(
+        uint256 _scaleBalance,
+        uint256 _denominator
+    ) external onlyByOwnGov {
         scaleBalance = _scaleBalance;
         denominator = _denominator;
     }
@@ -1806,10 +1793,10 @@ contract gEdeYieldDistributor is Owned, ReentrancyGuard {
         yieldCollectionPaused = _yieldCollectionPaused;
     }
 
-    function setYieldRate(uint256 _new_rate0, bool sync_too)
-        external
-        onlyByOwnGov
-    {
+    function setYieldRate(
+        uint256 _new_rate0,
+        bool sync_too
+    ) external onlyByOwnGov {
         yieldRate = _new_rate0;
 
         if (sync_too) {

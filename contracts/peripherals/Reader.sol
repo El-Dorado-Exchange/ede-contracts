@@ -17,7 +17,7 @@ contract Reader is Ownable {
 
     uint256 public constant BASIS_POINTS_DIVISOR = 10000;
     uint256 public constant POSITION_PROPS_LENGTH = 9;
-    uint256 public constant PRICE_PRECISION = 10**30;
+    uint256 public constant PRICE_PRECISION = 10 ** 30;
     uint256 public constant USDX_DECIMALS = 18;
 
     bool public hasMaxGlobalShortSizes;
@@ -53,8 +53,8 @@ contract Reader is Ownable {
             amountIn = availableAmount
                 .mul(priceOut)
                 .div(priceIn)
-                .mul(10**tokenInDecimals)
-                .div(10**tokenOutDecimals);
+                .mul(10 ** tokenInDecimals)
+                .div(10 ** tokenOutDecimals);
         }
 
         uint256 maxUsdxAmount = _vault.maxUSDAmounts(_tokenIn);
@@ -67,8 +67,8 @@ contract Reader is Ownable {
             uint256 maxAmountIn = maxUsdxAmount.sub(
                 _vault.usdxAmounts(_tokenIn)
             );
-            maxAmountIn = maxAmountIn.mul(10**tokenInDecimals).div(
-                10**USDX_DECIMALS
+            maxAmountIn = maxAmountIn.mul(10 ** tokenInDecimals).div(
+                10 ** USDX_DECIMALS
             );
             maxAmountIn = maxAmountIn.mul(PRICE_PRECISION).div(priceIn);
 
@@ -85,21 +85,15 @@ contract Reader is Ownable {
         address _tokenIn,
         address _tokenOut,
         uint256 _amountIn
-    )
-        public
-        view
-        returns (
-            uint256,
-            uint256,
-            uint256
-        )
-    {
+    ) public view returns (uint256, uint256, uint256) {
         uint256 priceIn = _vault.getMinPrice(_tokenIn);
         uint256 tokenInDecimals = _vault.tokenDecimals(_tokenIn);
         IVaultUtils _vaultUtils = IVaultUtils(_vault.vaultUtilsAddress());
 
         uint256 usdxAmount = _amountIn.mul(priceIn).div(PRICE_PRECISION);
-        usdxAmount = usdxAmount.mul(10**USDX_DECIMALS).div(10**tokenInDecimals);
+        usdxAmount = usdxAmount.mul(10 ** USDX_DECIMALS).div(
+            10 ** tokenInDecimals
+        );
 
         bool isStableSwap = _vault.stableTokens(_tokenIn) &&
             _vault.stableTokens(_tokenOut);
@@ -131,11 +125,10 @@ contract Reader is Ownable {
         return (feeBasisPoints, feesBasisPoints0, feesBasisPoints1);
     }
 
-    function getFees(address _vault, address[] memory _tokens)
-        public
-        view
-        returns (uint256[] memory)
-    {
+    function getFees(
+        address _vault,
+        address[] memory _tokens
+    ) public view returns (uint256[] memory) {
         uint256[] memory amounts = new uint256[](_tokens.length);
         for (uint256 i = 0; i < _tokens.length; i++) {
             amounts[i] = IVault(_vault).feeReserves(_tokens[i]);
@@ -143,11 +136,9 @@ contract Reader is Ownable {
         return amounts;
     }
 
-    function getTotalStaked(address[] memory _yieldTokens)
-        public
-        view
-        returns (uint256[] memory)
-    {
+    function getTotalStaked(
+        address[] memory _yieldTokens
+    ) public view returns (uint256[] memory) {
         uint256[] memory amounts = new uint256[](_yieldTokens.length);
         for (uint256 i = 0; i < _yieldTokens.length; i++) {
             IYieldToken yieldToken = IYieldToken(_yieldTokens[i]);
@@ -156,11 +147,10 @@ contract Reader is Ownable {
         return amounts;
     }
 
-    function getStakingInfo(address _account, address[] memory _yieldTrackers)
-        public
-        view
-        returns (uint256[] memory)
-    {
+    function getStakingInfo(
+        address _account,
+        address[] memory _yieldTrackers
+    ) public view returns (uint256[] memory) {
         uint256 propsLength = 2;
         uint256[] memory amounts = new uint256[](
             _yieldTrackers.length * propsLength
@@ -174,7 +164,7 @@ contract Reader is Ownable {
     }
 
     function getPairInfo(
-        address, /*_factory*/
+        address /*_factory*/,
         address[] memory _tokens
     ) public pure returns (uint256[] memory) {
         uint256 inputLength = 2;
@@ -225,11 +215,10 @@ contract Reader is Ownable {
         return fundingRates;
     }
 
-    function getTokenSupply(IERC20 _token, address[] memory _excludedAccounts)
-        public
-        view
-        returns (uint256)
-    {
+    function getTokenSupply(
+        IERC20 _token,
+        address[] memory _excludedAccounts
+    ) public view returns (uint256) {
         uint256 supply = _token.totalSupply();
         for (uint256 i = 0; i < _excludedAccounts.length; i++) {
             address account = _excludedAccounts[i];
@@ -239,11 +228,10 @@ contract Reader is Ownable {
         return supply;
     }
 
-    function getTotalBalance(IERC20 _token, address[] memory _accounts)
-        public
-        view
-        returns (uint256)
-    {
+    function getTotalBalance(
+        IERC20 _token,
+        address[] memory _accounts
+    ) public view returns (uint256) {
         uint256 totalBalance = 0;
         for (uint256 i = 0; i < _accounts.length; i++) {
             address account = _accounts[i];
@@ -253,11 +241,10 @@ contract Reader is Ownable {
         return totalBalance;
     }
 
-    function getTokenBalances(address _account, address[] memory _tokens)
-        public
-        view
-        returns (uint256[] memory)
-    {
+    function getTokenBalances(
+        address _account,
+        address[] memory _tokens
+    ) public view returns (uint256[] memory) {
         uint256[] memory balances = new uint256[](_tokens.length);
         for (uint256 i = 0; i < _tokens.length; i++) {
             address token = _tokens[i];
@@ -289,13 +276,11 @@ contract Reader is Ownable {
         return balances;
     }
 
-    function getPrices(IVaultPriceFeedV2 _priceFeed, address[] memory _tokens)
-        public
-        view
-        returns (uint256[] memory)
-    {
+    function getPrices(
+        IVaultPriceFeedV2 _priceFeed,
+        address[] memory _tokens
+    ) public view returns (uint256[] memory) {
         uint256 propsLength = 6;
-
         uint256[] memory amounts = new uint256[](_tokens.length * propsLength);
 
         for (uint256 i = 0; i < _tokens.length; i++) {
@@ -312,14 +297,9 @@ contract Reader is Ownable {
                 true,
                 false
             );
-            (amounts[i * propsLength + 2], ) = _priceFeed.getPrimaryPrice(
-                token,
-                true
-            );
-            (amounts[i * propsLength + 3], ) = _priceFeed.getPrimaryPrice(
-                token,
-                false
-            );
+
+            amounts[i * propsLength + 2] = amounts[i * propsLength];
+            amounts[i * propsLength + 3] = amounts[i * propsLength + 1];
             amounts[i * propsLength + 4] = _priceFeed.isAdjustmentAdditive(
                 token
             )
@@ -329,7 +309,6 @@ contract Reader is Ownable {
                 token
             );
         }
-
         return amounts;
     }
 
@@ -361,13 +340,18 @@ contract Reader is Ownable {
             amounts[i * propsLength + 5] = vault.getMinPrice(token);
             amounts[i * propsLength + 6] = vault.getMaxPrice(token);
             amounts[i * propsLength + 7] = vault.guaranteedUsd(token);
-            (amounts[i * propsLength + 8], ) = priceFeed.getPrimaryPrice(
+
+            amounts[i * propsLength + 8] = priceFeed.getPrice(
                 token,
+                true,
+                true,
                 false
             );
-            (amounts[i * propsLength + 9], ) = priceFeed.getPrimaryPrice(
+            amounts[i * propsLength + 9] = priceFeed.getPrice(
                 token,
-                true
+                false,
+                true,
+                false
             );
         }
 
@@ -404,13 +388,18 @@ contract Reader is Ownable {
             amounts[i * propsLength + 7] = vault.getMinPrice(token);
             amounts[i * propsLength + 8] = vault.getMaxPrice(token);
             amounts[i * propsLength + 9] = vault.guaranteedUsd(token);
-            (amounts[i * propsLength + 10], ) = priceFeed.getPrimaryPrice(
+
+            amounts[i * propsLength + 10] = priceFeed.getPrice(
                 token,
+                false,
+                true,
                 false
             );
-            (amounts[i * propsLength + 11], ) = priceFeed.getPrimaryPrice(
+            amounts[i * propsLength + 11] = priceFeed.getPrice(
                 token,
-                true
+                true,
+                true,
+                false
             );
         }
 
@@ -453,13 +442,17 @@ contract Reader is Ownable {
             amounts[i * propsLength + 9] = vault.getMinPrice(token);
             amounts[i * propsLength + 10] = vault.getMaxPrice(token);
             amounts[i * propsLength + 11] = vault.guaranteedUsd(token);
-            (amounts[i * propsLength + 12], ) = priceFeed.getPrimaryPrice(
+            amounts[i * propsLength + 12] = priceFeed.getPrice(
                 token,
+                false,
+                true,
                 false
             );
-            (amounts[i * propsLength + 13], ) = priceFeed.getPrimaryPrice(
+            amounts[i * propsLength + 13] = priceFeed.getPrice(
                 token,
-                true
+                true,
+                true,
+                false
             );
         }
 
@@ -485,8 +478,7 @@ contract Reader is Ownable {
                     uint256 averagePrice,
                     uint256 entryFundingRate,
                     ,
-                    /* reserveAmount */
-                    uint256 realisedPnl,
+                    /* reserveAmount */ uint256 realisedPnl,
                     bool hasRealisedProfit,
                     uint256 lastIncreasedTime
                 ) = IVault(_vault).getPosition(

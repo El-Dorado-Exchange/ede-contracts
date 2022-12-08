@@ -2,12 +2,16 @@
 
 pragma solidity ^0.8.0;
 
-import "../tokens/MintableBaseToken.sol";
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 
-contract EDE is MintableBaseToken {
-    constructor() MintableBaseToken("EDE Token", "EDE", 0) {}
+contract EDE is ERC20, Ownable {
+    constructor() ERC20("EDE", "EDE") {
+        uint256 initialSupply = 30300000 * (10 ** 18);
+        _mint(msg.sender, initialSupply);
+    }
 
-    function id() external pure returns (string memory _name) {
-        return "ELD";
+    function burn(uint256 _amount) external onlyOwner {
+        _burn(msg.sender, _amount);
     }
 }

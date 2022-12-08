@@ -7,43 +7,55 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
-
-import "../tokens/interfaces/IELP.sol";
-import "../core/interfaces/IElpManager.sol";
+import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import "./interfaces/IRewardTracker.sol";
-import "../tokens/interfaces/IMintable.sol";
-import "../tokens/interfaces/IWETH.sol";
+import "../core/interfaces/IElpManager.sol";
 import "../core/interfaces/IVaultPriceFeedV2.sol";
 import "../core/interfaces/IVault.sol";
+import "../tokens/interfaces/IMintable.sol";
+import "../tokens/interfaces/IWETH.sol";
+import "../tokens/interfaces/IELP.sol";
+import "../utils/EnumerableValues.sol";
+import "../DID/interfaces/IESBT.sol";
 
 contract RewardRouter is ReentrancyGuard, Ownable {
     using SafeMath for uint256;
     using SafeERC20 for IERC20;
     using Address for address payable;
 
+    using EnumerableSet for EnumerableSet.AddressSet;
+    using EnumerableValues for EnumerableSet.AddressSet;
+
     uint256 public cooldownDuration = 1 hours;
     mapping(address => uint256) public latestOperationTime;
 
-    uint256 public constant PRICE_TO_EUSD = 10**12; //ATTENTION: must be same as vault.
+    uint256 public constant PRICE_TO_EUSD = 10 ** 12; //ATTENTION: must be same as vault.
     uint256 public base_fee_point; //using LVT_PRECISION
     uint256 public constant LVT_PRECISION = 10000;
     uint256 public constant LVT_MINFEE = 50;
-    uint256 public constant PRICE_PRECISION = 10**30; //ATTENTION: must be same as vault.
+    uint256 public constant PRICE_PRECISION = 10 ** 30; //ATTENTION: must be same as vault.
+    uint256 public constant SWAP_THRESHOLD = 100 * (10 ** 30); //ATTENTION: must be same as vault.
 
     bool public isInitialized;
+    // address public weth;
     address public rewardToken;
     address public eusd;
     address public weth;
+    address public esbt;
 
-    address[] public allWhitelistedToken;
-    mapping(address => bool) public whitelistedToken;
+    EnumerableSet.AddressSet internal allToken;
+    mapping(address => bool) public swapToken;
+    mapping(address => bool) public isStable;
+    mapping(address => bool) public swapStatus;
+    mapping(address => EnumerableSet.AddressSet) internal ELPnContainsToken;
+    mapping(address => address) ELPnStableTokens;
 
     address public pricefeed;
-
-    uint256 public whitelistedELPnCount;
     uint256 public totalELPnWeights;
-    address[] public allWhitelistedELPn;
-    mapping(address => bool) public whitelistedELPn;
+
+    EnumerableSet.AddressSet allWhitelistedELPn;
+    address[] public whitelistedELPn;
+
     mapping(address => uint256) public rewardELPnWeights;
     mapping(address => address) public stakedELPnTracker;
     mapping(address => address) public stakedELPnVault;
@@ -52,6 +64,7 @@ contract RewardRouter is ReentrancyGuard, Ownable {
     event StakeElp(address account, uint256 amount);
     event UnstakeElp(address account, uint256 amount);
 
+    //===
     event UserStakeElp(address account, uint256 amount);
     event UserUnstakeElp(address account, uint256 amount);
 
@@ -60,6 +73,11 @@ contract RewardRouter is ReentrancyGuard, Ownable {
     event BuyEUSD(address account, address token, uint256 amount, uint256 fee);
 
     event SellEUSD(address account, address token, uint256 amount, uint256 fee);
+    event ClaimESBTEUSD(address _account, uint256 claimAmount);
+
+    receive() external payable {
+        require(msg.sender == weth, "Router: invalid sender");
+    }
 
     function initialize(
         address _rewardToken,
@@ -78,35 +96,61 @@ contract RewardRouter is ReentrancyGuard, Ownable {
         tokenDecimals[eusd] = 18; //(eusd).decimals()
     }
 
+    function setRewardToken(address _rewardToken) external onlyOwner {
+        rewardToken = _rewardToken;
+    }
+
     function setPriceFeed(address _pricefeed) external onlyOwner {
         pricefeed = _pricefeed;
+    }
+
+    function setESBT(address _esbt) external onlyOwner {
+        esbt = _esbt;
+    }
+
+    function setPriceFeed(address _token, bool _status) external onlyOwner {
+        swapToken[_token] = _status;
     }
 
     function setBaseFeePoint(uint256 _base_fee_point) external onlyOwner {
         base_fee_point = _base_fee_point;
     }
 
-    function setCooldownDuration(uint256 _setCooldownDuration)
-        external
-        onlyOwner
-    {
+    function setCooldownDuration(
+        uint256 _setCooldownDuration
+    ) external onlyOwner {
         cooldownDuration = _setCooldownDuration;
     }
 
-    function setTokenConfig(address _token, uint256 _token_decimal)
-        external
-        onlyOwner
-    {
-        if (!whitelistedToken[_token]) {
-            allWhitelistedToken.push(_token);
-            whitelistedToken[_token] = true;
+    function setTokenConfig(
+        address _token,
+        uint256 _token_decimal,
+        address _elp_n,
+        bool _isStable
+    ) external onlyOwner {
+        if (!allToken.contains(_token)) {
+            allToken.add(_token);
         }
         tokenDecimals[_token] = _token_decimal;
+
+        if (!ELPnContainsToken[_elp_n].contains(_token))
+            ELPnContainsToken[_elp_n].add(_token);
+        if (_isStable) {
+            ELPnStableTokens[_elp_n] = _token;
+            isStable[_token] = true;
+        }
     }
 
-    function delToken(address _token) external onlyOwner {
-        require(whitelistedToken[_token], "not included");
-        whitelistedToken[_token] = false;
+    function delToken(address _token, address _elp_n) external onlyOwner {
+        if (allToken.contains(_token)) {
+            allToken.remove(_token);
+        }
+        if (ELPnContainsToken[_elp_n].contains(_token))
+            ELPnContainsToken[_elp_n].remove(_token);
+    }
+
+    function setSwapToken(address _token, bool _status) external onlyOwner {
+        swapStatus[_token] = _status;
     }
 
     function setELPn(
@@ -116,34 +160,34 @@ contract RewardRouter is ReentrancyGuard, Ownable {
         uint256 _elp_n_decimal,
         address _stakedElpTracker
     ) external onlyOwner {
-        if (!whitelistedELPn[_elp_n]) {
-            whitelistedELPnCount = whitelistedELPnCount.add(1);
-            allWhitelistedELPn.push(_elp_n);
+        if (!allWhitelistedELPn.contains(_elp_n)) {
+            allWhitelistedELPn.add(_elp_n);
         }
-
-        //ATTENTION! set this contract as selp-n minter before initialize.
-        //ATTENTION! set elpn reawardTracker as ede minter before initialize.
 
         uint256 _totalELPnWeights = totalELPnWeights;
         _totalELPnWeights = _totalELPnWeights.sub(rewardELPnWeights[_elp_n]);
-
-        whitelistedELPn[_elp_n] = true;
-        tokenDecimals[_elp_n] = _elp_n_decimal;
+        totalELPnWeights = totalELPnWeights.add(_elp_n_weight);
         rewardELPnWeights[_elp_n] = _elp_n_weight;
+        tokenDecimals[_elp_n] = _elp_n_decimal;
         stakedELPnTracker[_elp_n] = _stakedElpTracker;
         stakedELPnVault[_elp_n] = _stakedELPnVault;
-        totalELPnWeights = totalELPnWeights.add(_elp_n_weight);
+        whitelistedELPn = allWhitelistedELPn.valuesAt(
+            0,
+            allWhitelistedELPn.length()
+        );
     }
 
-    function clearELPn(address _token) external onlyOwner {
-        require(whitelistedELPn[_token], "not included");
-        totalELPnWeights = totalELPnWeights.sub(rewardELPnWeights[_token]);
+    function clearELPn(address _elp_n) external onlyOwner {
+        require(allWhitelistedELPn.contains(_elp_n), "not included");
+        totalELPnWeights = totalELPnWeights.sub(rewardELPnWeights[_elp_n]);
+        allWhitelistedELPn.remove(_elp_n);
 
-        delete whitelistedELPn[_token];
-        delete tokenDecimals[_token];
-        delete rewardELPnWeights[_token];
-        delete stakedELPnTracker[_token];
-        whitelistedELPnCount = whitelistedELPnCount.sub(1);
+        delete rewardELPnWeights[_elp_n];
+        delete stakedELPnTracker[_elp_n];
+        whitelistedELPn = allWhitelistedELPn.valuesAt(
+            0,
+            allWhitelistedELPn.length()
+        );
     }
 
     // to help users who accidentally send their tokens to this contract
@@ -155,47 +199,47 @@ contract RewardRouter is ReentrancyGuard, Ownable {
         IERC20(_token).safeTransfer(_account, _amount);
     }
 
+    //===============================================================================================================
+
     function stakedELPnAmount()
         external
         view
-        returns (
-            address[] memory,
-            uint256[] memory,
-            uint256[] memory
-        )
+        returns (address[] memory, uint256[] memory, uint256[] memory)
     {
-        uint256 poolLength = allWhitelistedELPn.length;
+        uint256 poolLength = whitelistedELPn.length;
         uint256[] memory _stakedAmount = new uint256[](poolLength);
         address[] memory _stakedELPn = new address[](poolLength);
         uint256[] memory _poolRewardRate = new uint256[](poolLength);
 
         for (uint80 i = 0; i < poolLength; i++) {
-            _stakedELPn[i] = allWhitelistedELPn[i];
+            _stakedELPn[i] = whitelistedELPn[i];
             _stakedAmount[i] = IRewardTracker(
-                stakedELPnTracker[allWhitelistedELPn[i]]
+                stakedELPnTracker[whitelistedELPn[i]]
             ).poolStakedAmount();
             _poolRewardRate[i] = IRewardTracker(
-                stakedELPnTracker[allWhitelistedELPn[i]]
+                stakedELPnTracker[whitelistedELPn[i]]
             ).poolTokenRewardPerInterval();
         }
         return (_stakedELPn, _stakedAmount, _poolRewardRate);
     }
 
-    function stakeELPn(address _token, uint256 _elpAmount)
-        external
-        nonReentrant
-        returns (uint256)
-    {
+    function stakeELPn(
+        address _elp_n,
+        uint256 _elpAmount
+    ) external nonReentrant returns (uint256) {
         require(_elpAmount > 0, "RewardRouter: invalid _amount");
-        require(whitelistedELPn[_token], "RewardTracker: invalid stake Token");
+        require(
+            allWhitelistedELPn.contains(_elp_n),
+            "RewardTracker: invalid stake ELP Token"
+        );
         address account = msg.sender;
 
         latestOperationTime[account] = block.timestamp;
 
-        IRewardTracker(stakedELPnTracker[_token]).stakeForAccount(
+        IRewardTracker(stakedELPnTracker[_elp_n]).stakeForAccount(
             account,
             account,
-            _token,
+            _elp_n,
             _elpAmount
         );
 
@@ -204,11 +248,10 @@ contract RewardRouter is ReentrancyGuard, Ownable {
         return _elpAmount;
     }
 
-    function unstakeELPn(address _tokenIn, uint256 _tokenInAmount)
-        external
-        nonReentrant
-        returns (uint256)
-    {
+    function unstakeELPn(
+        address _elp_n,
+        uint256 _tokenInAmount
+    ) external nonReentrant returns (uint256) {
         address account = msg.sender;
         require(
             block.timestamp.sub(latestOperationTime[account]) >
@@ -219,13 +262,13 @@ contract RewardRouter is ReentrancyGuard, Ownable {
 
         require(_tokenInAmount > 0, "RewardRouter: invalid _elpAmount");
         require(
-            whitelistedELPn[_tokenIn],
+            allWhitelistedELPn.contains(_elp_n),
             "RewardTracker: invalid stake Token"
         );
 
-        IRewardTracker(stakedELPnTracker[_tokenIn]).unstakeForAccount(
+        IRewardTracker(stakedELPnTracker[_elp_n]).unstakeForAccount(
             account,
-            _tokenIn,
+            _elp_n,
             _tokenInAmount,
             account
         );
@@ -237,11 +280,9 @@ contract RewardRouter is ReentrancyGuard, Ownable {
 
     //----------------------------------------------------------------------------------------------------------------
 
-    function claimEDEForAccount(address _account)
-        external
-        nonReentrant
-        returns (uint256)
-    {
+    function claimEDEForAccount(
+        address _account
+    ) external nonReentrant returns (uint256) {
         address account = _account == address(0) ? msg.sender : _account;
         return _claimEDE(account);
     }
@@ -251,11 +292,9 @@ contract RewardRouter is ReentrancyGuard, Ownable {
         return _claimEDE(account);
     }
 
-    function claimEUSDForAccount(address _account)
-        public
-        nonReentrant
-        returns (uint256)
-    {
+    function claimEUSDForAccount(
+        address _account
+    ) public nonReentrant returns (uint256) {
         address account = _account == address(0) ? msg.sender : _account;
         return _claimEUSD(account);
     }
@@ -265,17 +304,53 @@ contract RewardRouter is ReentrancyGuard, Ownable {
         return _claimEUSD(account);
     }
 
-    function claimableEUSDForAccount(address _account)
-        external
-        view
-        returns (uint256)
-    {
+    function claimEE(
+        address[] memory _ELPlist
+    ) public nonReentrant returns (uint256, uint256) {
+        address account = msg.sender;
+        return _claimEEforAccount(account, _ELPlist);
+    }
+
+    function _claimEEforAccount(
+        address _account,
+        address[] memory _ELPlist
+    ) internal returns (uint256, uint256) {
+        require(
+            block.timestamp.sub(latestOperationTime[_account]) >
+                cooldownDuration,
+            "Cooldown Time Required."
+        );
+        for (uint80 i = 0; i < _ELPlist.length; i++) {
+            require(allWhitelistedELPn.contains(_ELPlist[i]), "invalid elp");
+        }
+
+        uint256 eusdClaimReward = 0;
+        for (uint80 i = 0; i < _ELPlist.length; i++) {
+            uint256 this_reward = IRewardTracker(stakedELPnTracker[_ELPlist[i]])
+                .claimForAccount(_account, _account);
+            eusdClaimReward = eusdClaimReward.add(this_reward);
+        }
+        require(
+            IERC20(rewardToken).balanceOf(address(this)) > eusdClaimReward,
+            "insufficient EDE"
+        );
+        IERC20(rewardToken).safeTransfer(_account, eusdClaimReward);
+        address account = _account == address(0) ? msg.sender : _account;
+        uint256 edeClaimReward = 0;
+        for (uint80 i = 0; i < _ELPlist.length; i++) {
+            uint256 this_reward = IELP(_ELPlist[i]).claimForAccount(account);
+            edeClaimReward = edeClaimReward.add(this_reward);
+        }
+        return (edeClaimReward, eusdClaimReward);
+    }
+
+    function claimableEUSDForAccount(
+        address _account
+    ) external view returns (uint256) {
         address account = _account == address(0) ? msg.sender : _account;
         uint256 totalClaimReward = 0;
-        for (uint80 i = 0; i < allWhitelistedELPn.length; i++) {
-            uint256 this_reward = IELP(allWhitelistedELPn[i]).claimable(
-                account
-            );
+        for (uint80 i = 0; i < whitelistedELPn.length; i++) {
+            uint256 this_reward = IELP(whitelistedELPn[i]).claimable(account);
             totalClaimReward = totalClaimReward.add(this_reward);
         }
         return totalClaimReward;
@@ -284,27 +359,24 @@ contract RewardRouter is ReentrancyGuard, Ownable {
     function claimableEUSD() external view returns (uint256) {
         address account = msg.sender;
         uint256 totalClaimReward = 0;
-        for (uint80 i = 0; i < allWhitelistedELPn.length; i++) {
-            uint256 this_reward = IELP(allWhitelistedELPn[i]).claimable(
-                account
-            );
+
+        for (uint80 i = 0; i < whitelistedELPn.length; i++) {
+            uint256 this_reward = IELP(whitelistedELPn[i]).claimable(account);
             totalClaimReward = totalClaimReward.add(this_reward);
         }
         return totalClaimReward;
     }
 
-    function claimableEUSDListForAccount(address _account)
-        external
-        view
-        returns (address[] memory, uint256[] memory)
-    {
-        uint256 poolLength = allWhitelistedELPn.length;
+    function claimableEUSDListForAccount(
+        address _account
+    ) external view returns (address[] memory, uint256[] memory) {
+        uint256 poolLength = whitelistedELPn.length;
         address account = _account == address(0) ? msg.sender : _account;
         address[] memory _stakedELPn = new address[](poolLength);
         uint256[] memory _rewardList = new uint256[](poolLength);
-        for (uint80 i = 0; i < allWhitelistedELPn.length; i++) {
-            _rewardList[i] = IELP(allWhitelistedELPn[i]).claimable(account);
-            _stakedELPn[i] = allWhitelistedELPn[i];
+        for (uint80 i = 0; i < whitelistedELPn.length; i++) {
+            _rewardList[i] = IELP(whitelistedELPn[i]).claimable(account);
+            _stakedELPn[i] = whitelistedELPn[i];
         }
         return (_stakedELPn, _rewardList);
     }
@@ -314,22 +386,20 @@ contract RewardRouter is ReentrancyGuard, Ownable {
         view
         returns (address[] memory, uint256[] memory)
     {
-        uint256 poolLength = allWhitelistedELPn.length;
+        uint256 poolLength = whitelistedELPn.length;
         address account = msg.sender;
         address[] memory _stakedELPn = new address[](poolLength);
         uint256[] memory _rewardList = new uint256[](poolLength);
-        for (uint80 i = 0; i < allWhitelistedELPn.length; i++) {
-            _rewardList[i] = IELP(allWhitelistedELPn[i]).claimable(account);
-            _stakedELPn[i] = allWhitelistedELPn[i];
+        for (uint80 i = 0; i < whitelistedELPn.length; i++) {
+            _rewardList[i] = IELP(whitelistedELPn[i]).claimable(account);
+            _stakedELPn[i] = whitelistedELPn[i];
         }
         return (_stakedELPn, _rewardList);
     }
 
-    function claimAllForAccount(address _account)
-        external
-        nonReentrant
-        returns (uint256[] memory)
-    {
+    function claimAllForAccount(
+        address _account
+    ) external nonReentrant returns (uint256[] memory) {
         address account = _account == address(0) ? msg.sender : _account;
         uint256[] memory reward = new uint256[](2);
         reward[0] = _claimEDE(account);
@@ -354,8 +424,8 @@ contract RewardRouter is ReentrancyGuard, Ownable {
         );
 
         uint256 totalClaimReward = 0;
-        for (uint80 i = 0; i < allWhitelistedELPn.length; i++) {
-            uint256 this_reward = IELP(allWhitelistedELPn[i]).claimForAccount(
+        for (uint80 i = 0; i < whitelistedELPn.length; i++) {
+            uint256 this_reward = IELP(whitelistedELPn[i]).claimForAccount(
                 account
             );
             totalClaimReward = totalClaimReward.add(this_reward);
@@ -369,10 +439,11 @@ contract RewardRouter is ReentrancyGuard, Ownable {
                 cooldownDuration,
             "Cooldown Time Required."
         );
+
         uint256 totalClaimReward = 0;
-        for (uint80 i = 0; i < allWhitelistedELPn.length; i++) {
+        for (uint80 i = 0; i < whitelistedELPn.length; i++) {
             uint256 this_reward = IRewardTracker(
-                stakedELPnTracker[allWhitelistedELPn[i]]
+                stakedELPnTracker[whitelistedELPn[i]]
             ).claimForAccount(_account, _account);
             totalClaimReward = totalClaimReward.add(this_reward);
         }
@@ -386,20 +457,18 @@ contract RewardRouter is ReentrancyGuard, Ownable {
         return totalClaimReward;
     }
 
-    function claimableEDEListForAccount(address _account)
-        external
-        view
-        returns (address[] memory, uint256[] memory)
-    {
-        uint256 poolLength = allWhitelistedELPn.length;
+    function claimableEDEListForAccount(
+        address _account
+    ) external view returns (address[] memory, uint256[] memory) {
+        uint256 poolLength = whitelistedELPn.length;
         address[] memory _stakedELPn = new address[](poolLength);
         uint256[] memory _rewardList = new uint256[](poolLength);
         address account = _account == address(0) ? msg.sender : _account;
-        for (uint80 i = 0; i < allWhitelistedELPn.length; i++) {
+        for (uint80 i = 0; i < whitelistedELPn.length; i++) {
             _rewardList[i] = IRewardTracker(
-                stakedELPnTracker[allWhitelistedELPn[i]]
+                stakedELPnTracker[whitelistedELPn[i]]
             ).claimable(account);
-            _stakedELPn[i] = allWhitelistedELPn[i];
+            _stakedELPn[i] = whitelistedELPn[i];
         }
         return (_stakedELPn, _rewardList);
     }
@@ -410,29 +479,28 @@ contract RewardRouter is ReentrancyGuard, Ownable {
         returns (address[] memory, uint256[] memory)
     {
         address account = msg.sender;
-        uint256 poolLength = allWhitelistedELPn.length;
+        uint256 poolLength = whitelistedELPn.length;
         address[] memory _stakedELPn = new address[](poolLength);
         uint256[] memory _rewardList = new uint256[](poolLength);
-        for (uint80 i = 0; i < allWhitelistedELPn.length; i++) {
+        for (uint80 i = 0; i < whitelistedELPn.length; i++) {
             _rewardList[i] = IRewardTracker(
-                stakedELPnTracker[allWhitelistedELPn[i]]
+                stakedELPnTracker[whitelistedELPn[i]]
             ).claimable(account);
-            _stakedELPn[i] = allWhitelistedELPn[i];
+            _stakedELPn[i] = whitelistedELPn[i];
         }
         return (_stakedELPn, _rewardList);
     }
 
-    function claimableEDEForAccount(address _account)
-        external
-        view
-        returns (uint256)
-    {
+    function claimableEDEForAccount(
+        address _account
+    ) external view returns (uint256) {
         uint256 _rewardList = 0;
         address account = _account == address(0) ? msg.sender : _account;
-        for (uint80 i = 0; i < allWhitelistedELPn.length; i++) {
+        for (uint80 i = 0; i < whitelistedELPn.length; i++) {
             _rewardList = _rewardList.add(
-                IRewardTracker(stakedELPnTracker[allWhitelistedELPn[i]])
-                    .claimable(account)
+                IRewardTracker(stakedELPnTracker[whitelistedELPn[i]]).claimable(
+                    account
+                )
             );
         }
         return _rewardList;
@@ -441,35 +509,64 @@ contract RewardRouter is ReentrancyGuard, Ownable {
     function claimableEDE() external view returns (uint256) {
         uint256 _rewardList = 0;
         address account = msg.sender;
-        for (uint80 i = 0; i < allWhitelistedELPn.length; i++) {
+        for (uint80 i = 0; i < whitelistedELPn.length; i++) {
             _rewardList = _rewardList.add(
-                IRewardTracker(stakedELPnTracker[allWhitelistedELPn[i]])
-                    .claimable(account)
+                IRewardTracker(stakedELPnTracker[whitelistedELPn[i]]).claimable(
+                    account
+                )
             );
         }
         return _rewardList;
     }
 
     function withdrawToEDEPool() external {
-        for (uint80 i = 0; i < allWhitelistedELPn.length; i++) {
-            IELP(allWhitelistedELPn[i]).withdrawToEDEPool();
+        for (uint80 i = 0; i < whitelistedELPn.length; i++) {
+            IELP(whitelistedELPn[i]).withdrawToEDEPool();
         }
+    }
+
+    function claimableESBTEUSD(
+        address _account
+    ) external view returns (uint256, uint256) {
+        if (esbt == address(0)) return (0, 0);
+        (uint256 accumReb, uint256 accumDis) = IESBT(esbt).userClaimable(
+            _account
+        );
+        accumReb = accumReb.div(PRICE_TO_EUSD);
+        accumDis = accumDis.div(PRICE_TO_EUSD);
+        return (accumDis, accumReb);
+    }
+
+    function claimESBTEUSD() public nonReentrant returns (uint256) {
+        address _account = msg.sender;
+        if (esbt == address(0)) return (0);
+        (uint256 accumReb, uint256 accumDis) = IESBT(esbt).userClaimable(
+            _account
+        );
+        accumReb = accumReb.div(PRICE_TO_EUSD);
+        accumDis = accumDis.div(PRICE_TO_EUSD);
+        uint256 claimAmount = accumDis.add(accumReb);
+        IESBT(esbt).updateClaimVal(_account);
+
+        if (claimAmount > 0) IMintable(eusd).mint(_account, claimAmount);
+        emit ClaimESBTEUSD(_account, claimAmount);
+        return claimAmount;
     }
 
     //------ EUSD Part
     function _USDbyFee() internal view returns (uint256) {
         uint256 feeUSD = 0;
-        for (uint80 i = 0; i < allWhitelistedELPn.length; i++) {
-            feeUSD = feeUSD.add(IELP(allWhitelistedELPn[i]).USDbyFee());
+        for (uint80 i = 0; i < whitelistedELPn.length; i++) {
+            feeUSD = feeUSD.add(IELP(whitelistedELPn[i]).USDbyFee());
         }
         return feeUSD;
     }
 
     function _collateralAmount(address token) internal view returns (uint256) {
         uint256 colAmount = 0;
-        for (uint80 i = 0; i < allWhitelistedELPn.length; i++) {
+        for (uint80 i = 0; i < whitelistedELPn.length; i++) {
             colAmount = colAmount.add(
-                IELP(allWhitelistedELPn[i]).TokenFeeReserved(token)
+                IELP(whitelistedELPn[i]).TokenFeeReserved(token)
             );
         }
 
@@ -484,16 +581,18 @@ contract RewardRouter is ReentrancyGuard, Ownable {
 
     function feeAUM() public view returns (uint256) {
         uint256 aum = 0;
+
+        address[] memory allWhitelistedToken = allToken.valuesAt(
+            0,
+            allToken.length()
+        );
         for (uint80 i = 0; i < allWhitelistedToken.length; i++) {
-            if (!whitelistedToken[allWhitelistedToken[i]]) {
-                continue;
-            }
             uint256 price = IVaultPriceFeedV2(pricefeed).getOrigPrice(
                 allWhitelistedToken[i]
             );
             uint256 poolAmount = _collateralAmount(allWhitelistedToken[i]);
             uint256 _decimalsTk = tokenDecimals[allWhitelistedToken[i]];
-            aum = aum.add(poolAmount.mul(price).div(10**_decimalsTk));
+            aum = aum.add(poolAmount.mul(price).div(10 ** _decimalsTk));
         }
         return aum;
     }
@@ -504,20 +603,18 @@ contract RewardRouter is ReentrancyGuard, Ownable {
         return _aumToEUSD.mul(LVT_PRECISION).div(_EUSDSupply);
     }
 
-    function _buyEUSDFee(uint256 _aumToEUSD, uint256 _EUSDSupply)
-        internal
-        view
-        returns (uint256)
-    {
+    function _buyEUSDFee(
+        uint256 _aumToEUSD,
+        uint256 _EUSDSupply
+    ) internal view returns (uint256) {
         uint256 fee_count = _aumToEUSD > _EUSDSupply ? base_fee_point : 0;
         return fee_count;
     }
 
-    function _sellEUSDFee(uint256 _aumToEUSD, uint256 _EUSDSupply)
-        internal
-        view
-        returns (uint256)
-    {
+    function _sellEUSDFee(
+        uint256 _aumToEUSD,
+        uint256 _EUSDSupply
+    ) internal view returns (uint256) {
         uint256 fee_count = _aumToEUSD > _EUSDSupply
             ? base_fee_point
             : base_fee_point.add(
@@ -526,16 +623,15 @@ contract RewardRouter is ReentrancyGuard, Ownable {
         return fee_count;
     }
 
-    function buyEUSD(address _token, uint256 _amount)
-        external
-        nonReentrant
-        returns (uint256)
-    {
+    function buyEUSD(
+        address _token,
+        uint256 _amount
+    ) external nonReentrant returns (uint256) {
         address _account = msg.sender;
-        require(whitelistedToken[_token], "Invalid Token");
+        require(allToken.contains(_token), "Invalid Token");
         require(_amount > 0, "invalid amount");
-        uint256 buyAmount = _buyEUSD(_account, _token, _amount);
         IERC20(_token).transferFrom(_account, address(this), _amount);
+        uint256 buyAmount = _buyEUSD(_account, _token, _amount);
         return buyAmount;
     }
 
@@ -543,7 +639,7 @@ contract RewardRouter is ReentrancyGuard, Ownable {
         address _account = msg.sender;
         uint256 _amount = msg.value;
         address _token = weth;
-        require(whitelistedToken[_token], "Invalid Token");
+        require(allToken.contains(_token), "Invalid Token");
         require(_amount > 0, "invalid amount");
 
         IWETH(weth).deposit{value: msg.value}();
@@ -564,8 +660,8 @@ contract RewardRouter is ReentrancyGuard, Ownable {
         uint256 price = IVaultPriceFeedV2(pricefeed).getOrigPrice(_token);
         uint256 buyEusdAmount = _amount
             .mul(price)
-            .div(10**tokenDecimals[_token])
-            .mul(10**tokenDecimals[eusd])
+            .div(10 ** tokenDecimals[_token])
+            .mul(10 ** tokenDecimals[eusd])
             .div(PRICE_PRECISION);
         uint256 fee_cut = buyEusdAmount.mul(fee_count).div(LVT_PRECISION);
         buyEusdAmount = buyEusdAmount.sub(fee_cut);
@@ -574,7 +670,7 @@ contract RewardRouter is ReentrancyGuard, Ownable {
             buyEusdAmount < IERC20(eusd).balanceOf(address(this)),
             "insufficient EUSD"
         );
-        IERC20(eusd).transfer(_account, buyEusdAmount);
+        IERC20(eusd).safeTransfer(_account, buyEusdAmount);
 
         emit BuyEUSD(_account, _token, buyEusdAmount, fee_count);
         return buyEusdAmount;
@@ -582,9 +678,9 @@ contract RewardRouter is ReentrancyGuard, Ownable {
 
     function claimGeneratedFee(address _token) public returns (uint256) {
         uint256 claimedTokenAmount = 0;
-        for (uint80 i = 0; i < allWhitelistedELPn.length; i++) {
+        for (uint80 i = 0; i < whitelistedELPn.length; i++) {
             claimedTokenAmount = claimedTokenAmount.add(
-                IVault(stakedELPnVault[allWhitelistedELPn[i]]).claimFeeToken(
+                IVault(stakedELPnVault[whitelistedELPn[i]]).claimFeeToken(
                     _token
                 )
             );
@@ -592,12 +688,36 @@ contract RewardRouter is ReentrancyGuard, Ownable {
         return claimedTokenAmount;
     }
 
-    function sellEUSD(address _token, uint256 _EUSDamount)
-        public
-        nonReentrant
-        returns (uint256)
-    {
-        require(whitelistedToken[_token], "Invalid Token");
+    function swapCollateral() public {
+        for (uint256 i = 0; i < whitelistedELPn.length; i++) {
+            if (whitelistedELPn[i] == address(0)) continue;
+            if (ELPnStableTokens[whitelistedELPn[i]] == address(0)) continue;
+            address[] memory _wToken = ELPnContainsToken[whitelistedELPn[i]]
+                .valuesAt(0, ELPnContainsToken[whitelistedELPn[i]].length());
+
+            for (uint80 k = 0; k < _wToken.length; k++) {
+                if (!swapStatus[_wToken[k]]) continue;
+
+                if (
+                    IVault(stakedELPnVault[whitelistedELPn[i]]).tokenToUsdMin(
+                        _wToken[k],
+                        IERC20(_wToken[k]).balanceOf(address(this))
+                    ) < SWAP_THRESHOLD
+                ) break;
+                IVault(stakedELPnVault[whitelistedELPn[i]]).swap(
+                    _wToken[k],
+                    ELPnStableTokens[whitelistedELPn[i]],
+                    address(this)
+                );
+            }
+        }
+    }
+
+    function sellEUSD(
+        address _token,
+        uint256 _EUSDamount
+    ) public nonReentrant returns (uint256) {
+        require(allToken.contains(_token), "Invalid Token");
         require(_EUSDamount > 0, "invalid amount");
         address _account = msg.sender;
         uint256 sellTokenAmount = _sellEUSD(_account, _token, _EUSDamount);
@@ -607,13 +727,11 @@ contract RewardRouter is ReentrancyGuard, Ownable {
         return sellTokenAmount;
     }
 
-    function sellEUSDNative(uint256 _EUSDamount)
-        public
-        nonReentrant
-        returns (uint256)
-    {
+    function sellEUSDNative(
+        uint256 _EUSDamount
+    ) public nonReentrant returns (uint256) {
         address _token = weth;
-        require(whitelistedToken[_token], "Invalid Token");
+        require(allToken.contains(_token), "Invalid Token");
         require(_EUSDamount > 0, "invalid amount");
         address _account = msg.sender;
         uint256 sellTokenAmount = _sellEUSD(_account, _token, _EUSDamount);
@@ -636,8 +754,8 @@ contract RewardRouter is ReentrancyGuard, Ownable {
         uint256 price = IVaultPriceFeedV2(pricefeed).getOrigPrice(_token);
         uint256 sellTokenAmount = _EUSDamount
             .mul(PRICE_PRECISION)
-            .div(10**tokenDecimals[eusd])
-            .mul(10**tokenDecimals[_token])
+            .div(10 ** tokenDecimals[eusd])
+            .mul(10 ** tokenDecimals[_token])
             .div(price);
         uint256 fee_cut = sellTokenAmount.mul(fee_count).div(LVT_PRECISION);
         sellTokenAmount = sellTokenAmount.sub(fee_cut);
@@ -679,21 +797,18 @@ contract RewardRouter is ReentrancyGuard, Ownable {
     function getEUSDCollateralDetail()
         external
         view
-        returns (
-            address[] memory,
-            uint256[] memory,
-            uint256[] memory
-        )
+        returns (address[] memory, uint256[] memory, uint256[] memory)
     {
+        address[] memory allWhitelistedToken = allToken.valuesAt(
+            0,
+            allToken.length()
+        );
         uint256 _length = allWhitelistedToken.length;
         address[] memory _collateralToken = new address[](_length);
         uint256[] memory _collageralAmount = new uint256[](_length);
         uint256[] memory _collageralUSD = new uint256[](_length);
 
         for (uint256 i = 0; i < allWhitelistedToken.length; i++) {
-            if (!whitelistedToken[allWhitelistedToken[i]]) {
-                continue;
-            }
             uint256 price = IVaultPriceFeedV2(pricefeed).getOrigPrice(
                 allWhitelistedToken[i]
             );
@@ -701,7 +816,7 @@ contract RewardRouter is ReentrancyGuard, Ownable {
             _collageralAmount[i] = _collateralAmount(allWhitelistedToken[i]);
             uint256 _decimalsTk = tokenDecimals[allWhitelistedToken[i]];
             _collageralUSD[i] = _collageralAmount[i].mul(price).div(
-                10**_decimalsTk
+                10 ** _decimalsTk
             );
         }
 

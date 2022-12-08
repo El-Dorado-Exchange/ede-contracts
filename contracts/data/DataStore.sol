@@ -52,11 +52,10 @@ contract DataStore {
             addressSetValues[_key].remove(_account);
     }
 
-    function hasAddressSet(bytes32 _key, address _account)
-        public
-        view
-        returns (bool)
-    {
+    function hasAddressSet(
+        bytes32 _key,
+        address _account
+    ) public view returns (bool) {
         return addressSetValues[_key].contains(_account);
     }
 
@@ -80,11 +79,10 @@ contract DataStore {
         uintSetValues[_key].remove(_value);
     }
 
-    function hasUintSet(bytes32 _key, uint256 _value)
-        public
-        view
-        returns (bool)
-    {
+    function hasUintSet(
+        bytes32 _key,
+        uint256 _value
+    ) public view returns (bool) {
         return uintSetValues[_key].contains(_value);
     }
 
@@ -108,11 +106,10 @@ contract DataStore {
         bytes32SetValues[_key].remove(_content);
     }
 
-    function hasBytes32Set(bytes32 _key, bytes32 _content)
-        public
-        view
-        returns (bool)
-    {
+    function hasBytes32Set(
+        bytes32 _key,
+        bytes32 _content
+    ) public view returns (bool) {
         return bytes32SetValues[_key].contains(_content);
     }
 
@@ -162,11 +159,10 @@ contract DataStore {
         return addAddressSetValues[_mpaddress][_key].contains(_account);
     }
 
-    function getAddMpAddressSetCount(address _mpaddress, bytes32 _key)
-        public
-        view
-        returns (uint256)
-    {
+    function getAddMpAddressSetCount(
+        address _mpaddress,
+        bytes32 _key
+    ) public view returns (uint256) {
         return addAddressSetValues[_mpaddress][_key].length();
     }
 
@@ -213,11 +209,10 @@ contract DataStore {
         return addUintSetValues[_mpaddress][_key].contains(_value);
     }
 
-    function getAddMpUintSetCount(address _mpaddress, bytes32 _key)
-        public
-        view
-        returns (uint256)
-    {
+    function getAddMpUintSetCount(
+        address _mpaddress,
+        bytes32 _key
+    ) public view returns (uint256) {
         return addUintSetValues[_mpaddress][_key].length();
     }
 
@@ -230,11 +225,10 @@ contract DataStore {
         return addUintSetValues[_mpaddress][_key].valuesAt(_start, _end);
     }
 
-    function getAddMpUintetRolesFull(address _mpaddress, bytes32 _key)
-        public
-        view
-        returns (uint256[] memory)
-    {
+    function getAddMpUintetRolesFull(
+        address _mpaddress,
+        bytes32 _key
+    ) public view returns (uint256[] memory) {
         return
             addUintSetValues[_mpaddress][_key].valuesAt(
                 0,
@@ -276,11 +270,10 @@ contract DataStore {
         return addDataSetValues[_mpaddress][_key].contains(_content);
     }
 
-    function getAddMpBytes32SetCount(address _mpaddress, bytes32 _key)
-        public
-        view
-        returns (uint256)
-    {
+    function getAddMpBytes32SetCount(
+        address _mpaddress,
+        bytes32 _key
+    ) public view returns (uint256) {
         return addDataSetValues[_mpaddress][_key].length();
     }
 
@@ -297,11 +290,10 @@ contract DataStore {
         return uintValues[key];
     }
 
-    function getAddUint(address _account, bytes32 key)
-        public
-        view
-        returns (uint256)
-    {
+    function getAddUint(
+        address _account,
+        bytes32 key
+    ) public view returns (uint256) {
         return addUintValues[_account][key];
     }
 
@@ -319,10 +311,10 @@ contract DataStore {
         return value;
     }
 
-    function incrementUint(bytes32 key, uint256 value)
-        internal
-        returns (uint256)
-    {
+    function incrementUint(
+        bytes32 key,
+        uint256 value
+    ) internal returns (uint256) {
         uint256 nextUint = uintValues[key] + value;
         uintValues[key] = nextUint;
         return nextUint;
@@ -338,10 +330,10 @@ contract DataStore {
         return nextUint;
     }
 
-    function decrementUint(bytes32 key, uint256 value)
-        internal
-        returns (uint256)
-    {
+    function decrementUint(
+        bytes32 key,
+        uint256 value
+    ) internal returns (uint256) {
         uint256 nextUint = uintValues[key] > value
             ? uintValues[key] - value
             : 0;
@@ -376,10 +368,10 @@ contract DataStore {
         return nextInt;
     }
 
-    function decrementUint(bytes32 key, int256 value)
-        internal
-        returns (int256)
-    {
+    function decrementUint(
+        bytes32 key,
+        int256 value
+    ) internal returns (int256) {
         int256 nextInt = intValues[key] - value;
         intValues[key] = nextInt;
         return nextInt;
@@ -389,11 +381,10 @@ contract DataStore {
         return addressValues[key];
     }
 
-    function getAddAddress(address _account, bytes32 key)
-        public
-        view
-        returns (address)
-    {
+    function getAddAddress(
+        address _account,
+        bytes32 key
+    ) public view returns (address) {
         return addAddressValues[_account][key];
     }
 
@@ -424,11 +415,10 @@ contract DataStore {
         return boolValues[key];
     }
 
-    function getAddBool(address _account, bytes32 key)
-        public
-        view
-        returns (bool)
-    {
+    function getAddBool(
+        address _account,
+        bytes32 key
+    ) public view returns (bool) {
         return addBoolValues[_account][key];
     }
 

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-pragma solidity 0.7.5;
+
+pragma solidity ^0.8.0;
 
 interface ERC20Interface {
     function balanceOf(address user) external view returns (uint256);
@@ -104,62 +105,30 @@ library SafeToken {
         return ERC20Interface(token).balanceOf(address(this));
     }
 
-    function balanceOf(address token, address user)
-        internal
-        view
-        returns (uint256)
-    {
+    function balanceOf(address token, address user) internal view returns (uint256) {
         return ERC20Interface(token).balanceOf(user);
     }
 
-    function safeApprove(
-        address token,
-        address to,
-        uint256 value
-    ) internal {
+    function safeApprove(address token, address to, uint256 value) internal {
         // bytes4(keccak256(bytes('approve(address,uint256)')));
-        (bool success, bytes memory data) = token.call(
-            abi.encodeWithSelector(0x095ea7b3, to, value)
-        );
-        require(
-            success && (data.length == 0 || abi.decode(data, (bool))),
-            "!safeApprove"
-        );
+        (bool success, bytes memory data) = token.call(abi.encodeWithSelector(0x095ea7b3, to, value));
+        require(success && (data.length == 0 || abi.decode(data, (bool))), "!safeApprove");
     }
 
-    function safeTransfer(
-        address token,
-        address to,
-        uint256 value
-    ) internal {
+    function safeTransfer(address token, address to, uint256 value) internal {
         // bytes4(keccak256(bytes('transfer(address,uint256)')));
-        (bool success, bytes memory data) = token.call(
-            abi.encodeWithSelector(0xa9059cbb, to, value)
-        );
-        require(
-            success && (data.length == 0 || abi.decode(data, (bool))),
-            "!safeTransfer"
-        );
+        (bool success, bytes memory data) = token.call(abi.encodeWithSelector(0xa9059cbb, to, value));
+        require(success && (data.length == 0 || abi.decode(data, (bool))), "!safeTransfer");
     }
 
-    function safeTransferFrom(
-        address token,
-        address from,
-        address to,
-        uint256 value
-    ) internal {
+    function safeTransferFrom(address token, address from, address to, uint256 value) internal {
         // bytes4(keccak256(bytes('transferFrom(address,address,uint256)')));
-        (bool success, bytes memory data) = token.call(
-            abi.encodeWithSelector(0x23b872dd, from, to, value)
-        );
-        require(
-            success && (data.length == 0 || abi.decode(data, (bool))),
-            "!safeTransferFrom"
-        );
+        (bool success, bytes memory data) = token.call(abi.encodeWithSelector(0x23b872dd, from, to, value));
+        require(success && (data.length == 0 || abi.decode(data, (bool))), "!safeTransferFrom");
     }
 
     function safeTransferETH(address to, uint256 val) internal {
-        (bool success, ) = to.call{value: val}(new bytes(0));
+        (bool success,) = to.call{value : val}(new bytes(0));
         require(success, "!safeTransferETH");
     }
 }
@@ -195,19 +164,14 @@ interface IOwnable {
 }
 
 contract Ownable is IOwnable {
+
     address internal _owner;
     address internal _newOwner;
 
-    event OwnershipPushed(
-        address indexed previousOwner,
-        address indexed newOwner
-    );
-    event OwnershipPulled(
-        address indexed previousOwner,
-        address indexed newOwner
-    );
+    event OwnershipPushed(address indexed previousOwner, address indexed newOwner);
+    event OwnershipPulled(address indexed previousOwner, address indexed newOwner);
 
-    constructor() {
+    constructor () {
         _owner = msg.sender;
         emit OwnershipPushed(address(0), _owner);
     }
@@ -221,21 +185,13 @@ contract Ownable is IOwnable {
         _;
     }
 
-    function renounceManagement() public virtual override onlyPolicy {
+    function renounceManagement() public virtual override onlyPolicy() {
         emit OwnershipPushed(_owner, address(0));
         _owner = address(0);
     }
 
-    function pushManagement(address newOwner_)
-        public
-        virtual
-        override
-        onlyPolicy
-    {
-        require(
-            newOwner_ != address(0),
-            "Ownable: new owner is the zero address"
-        );
+    function pushManagement(address newOwner_) public virtual override onlyPolicy() {
+        require(newOwner_ != address(0), "Ownable: new owner is the zero address");
         emit OwnershipPushed(_owner, newOwner_);
         _newOwner = newOwner_;
     }
@@ -247,24 +203,25 @@ contract Ownable is IOwnable {
     }
 }
 
-interface IgDED {
-    function create_lock(
-        address _addr,
-        uint256 _value,
-        uint256 _unlock_time
-    ) external;
 
+interface IgDED {
+    function create_lock(address _addr, uint256 _value, uint256 _unlock_time) external;
     function checkpoint() external;
 
     function increase_amount(address _addr, uint256 _value) external;
 
     function increase_unlock_time(address _addr, uint256 _unlock_time) external;
+
 }
 
 interface IEdeDistributor {
     function checkpointOtherUser(address _addr) external;
-
     function getYieldUser(address _addr) external returns (uint256 yield0);
+}
+
+
+interface IRewardRouter {
+    function withdrawToEDEPool() external;
 }
 
 contract veStakeHelper is Ownable {
@@ -274,15 +231,13 @@ contract veStakeHelper is Ownable {
     IgDED public gEde;
     IEdeDistributor public distributor_EDE;
     IEdeDistributor public distributor_FEE;
+    IRewardRouter public rewardRouter;
 
-    constructor(
-        IgDED _gEde,
-        IEdeDistributor _distributorEDE,
-        IEdeDistributor _distributorFEE
-    ) {
+    constructor (IgDED _gEde, IEdeDistributor _distributorEDE, IEdeDistributor _distributorFEE, IRewardRouter _rewardRouter) {
         gEde = _gEde;
         distributor_EDE = _distributorEDE;
         distributor_FEE = _distributorFEE;
+        rewardRouter = _rewardRouter;
     }
 
     function create_lock_helper(uint256 _value, uint256 _unlock_time) external {
@@ -290,6 +245,7 @@ contract veStakeHelper is Ownable {
         gEde.checkpoint();
         distributor_EDE.checkpointOtherUser(msg.sender);
         distributor_FEE.checkpointOtherUser(msg.sender);
+        withdrawToEDEPool();
     }
 
     function increase_amount_helper(uint256 _value) external {
@@ -297,16 +253,30 @@ contract veStakeHelper is Ownable {
         gEde.checkpoint();
         distributor_EDE.checkpointOtherUser(msg.sender);
         distributor_FEE.checkpointOtherUser(msg.sender);
+        withdrawToEDEPool();
     }
 
     function increase_unlock_time_helper(uint256 _unlock_time) external {
         gEde.increase_unlock_time(msg.sender, _unlock_time);
         distributor_EDE.checkpointOtherUser(msg.sender);
         distributor_FEE.checkpointOtherUser(msg.sender);
+        withdrawToEDEPool();
     }
 
     function getYield_helper() external {
         distributor_EDE.getYieldUser(msg.sender);
         distributor_FEE.getYieldUser(msg.sender);
+        withdrawToEDEPool();
     }
+
+
+
+    function withdrawToEDEPool() public {
+        rewardRouter.withdrawToEDEPool();
+    }
+
+    function setRewardRouter(address _rewardRouter) external onlyPolicy {
+        rewardRouter = IRewardRouter(_rewardRouter);
+    }
+
 }

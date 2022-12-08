@@ -3,14 +3,18 @@
 pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/utils/math/SafeMath.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/utils/Strings.sol";
-
+// import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "./interfaces/IVault.sol";
 import "./interfaces/IVaultUtils.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/utils/Strings.sol";
+import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
+import "../utils/EnumerableValues.sol";
 
 contract VaultUtils is IVaultUtils, Ownable {
     using SafeMath for uint256;
+    using EnumerableSet for EnumerableSet.Bytes32Set;
+    using EnumerableValues for EnumerableSet.Bytes32Set;
 
     struct Position {
         uint256 size;
@@ -22,12 +26,21 @@ contract VaultUtils is IVaultUtils, Ownable {
         uint256 lastIncreasedTime;
     }
 
+    struct PositionOrig {
+        address account;
+        address collateralToken;
+        address indexToken;
+        bool isLong;
+    }
+    mapping(bytes32 => PositionOrig) public positionsOrig;
+
     IVault public vault;
+    EnumerableSet.Bytes32Set internal positionKeys;
 
     uint256 public constant BASIS_POINTS_DIVISOR = 10000;
     uint256 public constant FUNDING_RATE_PRECISION = 1000000;
 
-    uint256 public constant PRICE_PRECISION = 10**30;
+    uint256 public constant PRICE_PRECISION = 10 ** 30;
     uint256 public constant MIN_LEVERAGE = 10000; // 1x
     uint256 public constant USDX_DECIMALS = 18;
     uint256 public constant MAX_FEE_BASIS_POINTS = 500; // 5%
@@ -48,10 +61,6 @@ contract VaultUtils is IVaultUtils, Ownable {
     uint256 public override maxLeverage = 50 * 10000; // 50x
 
     mapping(uint256 => string) public override errors;
-
-    uint256 public discountDecimal;
-    mapping(address => bool) public isUploadingEnabled;
-    mapping(address => bool) public isDiscountEnabled;
 
     constructor(IVault _vault) {
         vault = _vault;
@@ -91,44 +100,53 @@ contract VaultUtils is IVaultUtils, Ownable {
         maxLeverage = _maxLeverage;
     }
 
-    function setUploadingStatus(address _new_uis, bool _isActive)
-        public
-        onlyOwner
-    {
-        isUploadingEnabled[_new_uis] = _isActive;
+    function addPosition(
+        bytes32 _key,
+        address _account,
+        address _collateralToken,
+        address _indexToken,
+        bool _isLong
+    ) public override {
+        require(msg.sender == address(vault), "addPos: only vault");
+        if (!positionKeys.contains(_key)) {
+            positionKeys.add(_key);
+            PositionOrig storage positionOrig = positionsOrig[_key];
+            positionOrig.account = _account;
+            positionOrig.collateralToken = _collateralToken;
+            positionOrig.indexToken = _indexToken;
+            positionOrig.isLong = _isLong;
+        }
     }
 
-    function setDiscountStatus(address _new_uis, bool _isActive)
-        public
-        onlyOwner
-    {
-        isDiscountEnabled[_new_uis] = _isActive;
+    function removePosition(bytes32 _key) public override {
+        require(msg.sender == address(vault), "addPos: only vault");
+        if (positionKeys.contains(_key)) positionKeys.remove(_key);
     }
 
     function updateCumulativeFundingRate(
-        address, /* _collateralToken */
+        address /* _collateralToken */,
         address /* _indexToken */
     ) public pure override returns (bool) {
         return true;
     }
 
     function validateIncreasePosition(
-        address, /* _account */
-        address, /* _collateralToken */
-        address, /* _indexToken */
-        uint256, /* _sizeDelta */
+        address /* _account */,
+        address /* _collateralToken */,
+        address /* _indexToken */,
+        uint256 /* _sizeDelta */,
         bool /* _isLong */
     ) external view override {
         // no additional validations
     }
 
     function validateDecreasePosition(
-        address, /* _account */
-        address, /* _collateralToken */
-        address, /* _indexToken */
-        uint256, /* _collateralDelta */
-        uint256, /* _sizeDelta */
-        bool, /* _isLong */
+        address /* _account */,
+        address /* _collateralToken */,
+        address /* _indexToken */,
+        uint256 /* _collateralDelta */,
+        uint256 /* _sizeDelta */,
+        bool /* _isLong */,
         address /* _receiver */
     ) external view override {
         // no additional validations
@@ -147,7 +165,7 @@ contract VaultUtils is IVaultUtils, Ownable {
                 uint256 size,
                 uint256 collateral,
                 uint256 averagePrice,
-                uint256 entryFundingRate, /* reserveAmount */ /* realisedPnl */ /* hasProfit */
+                uint256 entryFundingRate /* reserveAmount */ /* realisedPnl */ /* hasProfit */,
                 ,
                 ,
                 ,
@@ -165,6 +183,137 @@ contract VaultUtils is IVaultUtils, Ownable {
             position.lastIncreasedTime = lastIncreasedTime;
         }
         return position;
+    }
+
+    function getPositionKey(
+        address _account,
+        address _collateralToken,
+        address _indexToken,
+        bool _isLong,
+        uint256 _keyID
+    ) public pure returns (bytes32) {
+        return
+            keccak256(
+                abi.encodePacked(
+                    _account,
+                    _collateralToken,
+                    _indexToken,
+                    _isLong,
+                    _keyID
+                )
+            );
+    }
+
+    function getKeyInfo(
+        bytes32 _key
+    ) public view returns (address, address, address, bool) {
+        return (
+            positionsOrig[_key].account,
+            positionsOrig[_key].collateralToken,
+            positionsOrig[_key].indexToken,
+            positionsOrig[_key].isLong
+        );
+    }
+
+    function getLiqPrice(bytes32 _key) public view override returns (uint256) {
+        (
+            uint256 size,
+            uint256 collateral,
+            uint256 averagePrice,
+            uint256 entryFundingRate,
+            ,
+            ,
+            ,
+
+        ) = vault.getPositionByKey(_key);
+        if (size < 1) return size;
+
+        uint256 _fees = getFundingFee(
+            positionsOrig[_key].account,
+            positionsOrig[_key].collateralToken,
+            positionsOrig[_key].indexToken,
+            positionsOrig[_key].isLong,
+            size,
+            entryFundingRate
+        );
+        _fees = _fees.add(
+            getPositionFee(
+                positionsOrig[_key].account,
+                positionsOrig[_key].collateralToken,
+                positionsOrig[_key].indexToken,
+                positionsOrig[_key].isLong,
+                size
+            )
+        );
+        _fees = _fees.add(liquidationFeeUsd);
+
+        uint256 _maxLevCon = size.mul(BASIS_POINTS_DIVISOR).div(maxLeverage);
+
+        uint256 _tmpDelta = _maxLevCon > _fees ? _maxLevCon : _fees;
+
+        _tmpDelta = averagePrice.mul(collateral.sub(_tmpDelta)).div(size);
+        return
+            positionsOrig[_key].isLong
+                ? averagePrice.sub(_tmpDelta)
+                : averagePrice.add(_tmpDelta);
+    }
+
+    function getPositionsInfo(
+        uint256 _start,
+        uint256 _end
+    ) public view returns (bytes32[] memory, uint256[] memory, bool[] memory) {
+        if (_end > positionKeys.length()) _end = positionKeys.length();
+        bytes32[] memory allKeys = positionKeys.valuesAt(_start, _end);
+
+        uint256[] memory liqPrices = new uint256[](allKeys.length);
+        bool[] memory isLongs = new bool[](allKeys.length);
+        for (uint256 i = 0; i < allKeys.length; i++) {
+            liqPrices[i] = getLiqPrice(allKeys[i]);
+            isLongs[i] = positionsOrig[allKeys[i]].isLong;
+        }
+        return (allKeys, liqPrices, isLongs);
+    }
+
+    // for longs: nextAveragePrice = (nextPrice * nextSize)/ (nextSize + delta)
+    // for shorts: nextAveragePrice = (nextPrice * nextSize) / (nextSize - delta)
+    function getNextAveragePrice(
+        address _indexToken,
+        uint256 _size,
+        uint256 _averagePrice,
+        bool _isLong,
+        uint256 _nextPrice,
+        uint256 _sizeDelta,
+        uint256 _lastIncreasedTime
+    ) public view override returns (uint256) {
+        (bool hasProfit, uint256 delta) = vault.getDelta(
+            _indexToken,
+            _size,
+            _averagePrice,
+            _isLong,
+            _lastIncreasedTime
+        );
+        uint256 nextSize = _size.add(_sizeDelta);
+        uint256 divisor;
+        if (_isLong) {
+            divisor = hasProfit ? nextSize.add(delta) : nextSize.sub(delta);
+        } else {
+            divisor = hasProfit ? nextSize.sub(delta) : nextSize.add(delta);
+        }
+        return _nextPrice.mul(nextSize).div(divisor);
+    }
+
+    function validateLiquidationbyKey(
+        bytes32 _key,
+        bool _raise
+    ) public view returns (uint256, uint256) {
+        return
+            validateLiquidation(
+                positionsOrig[_key].account,
+                positionsOrig[_key].collateralToken,
+                positionsOrig[_key].indexToken,
+                positionsOrig[_key].isLong,
+                _raise
+            );
     }
 
     function validateLiquidation(
@@ -259,17 +408,17 @@ contract VaultUtils is IVaultUtils, Ownable {
 
     function getEntryFundingRate(
         address _collateralToken,
-        address, /* _indexToken */
+        address /* _indexToken */,
         bool /* _isLong */
     ) public view override returns (uint256) {
         return vault.cumulativeFundingRates(_collateralToken);
     }
 
     function getPositionFee(
-        address, /* _account */
-        address, /* _collateralToken */
-        address, /* _indexToken */
-        bool, /* _isLong */
+        address /* _account */,
+        address /* _collateralToken */,
+        address /* _indexToken */,
+        bool /* _isLong */,
         uint256 _sizeDelta
     ) public view override returns (uint256) {
         if (_sizeDelta == 0) {
@@ -282,10 +431,10 @@ contract VaultUtils is IVaultUtils, Ownable {
     }
 
     function getFundingFee(
-        address, /* _account */
+        address /* _account */,
         address _collateralToken,
-        address, /* _indexToken */
-        bool, /* _isLong */
+        address /* _indexToken */,
+        bool /* _isLong */,
         uint256 _size,
         uint256 _entryFundingRate
     ) public view override returns (uint256) {
@@ -303,12 +452,10 @@ contract VaultUtils is IVaultUtils, Ownable {
         return _size.mul(fundingRate).div(FUNDING_RATE_PRECISION);
     }
 
-    function getBuyUsdxFeeBasisPoints(address _token, uint256 _usdxAmount)
-        public
-        view
-        override
-        returns (uint256)
-    {
+    function getBuyUsdxFeeBasisPoints(
+        address _token,
+        uint256 _usdxAmount
+    ) public view override returns (uint256) {
         return
             getFeeBasisPoints(
                 _token,
@@ -319,12 +466,10 @@ contract VaultUtils is IVaultUtils, Ownable {
             );
     }
 
-    function getSellUsdxFeeBasisPoints(address _token, uint256 _usdxAmount)
-        public
-        view
-        override
-        returns (uint256)
-    {
+    function getSellUsdxFeeBasisPoints(
+        address _token,
+        uint256 _usdxAmount
+    ) public view override returns (uint256) {
         return
             getFeeBasisPoints(
                 _token,
@@ -429,5 +574,9 @@ contract VaultUtils is IVaultUtils, Ownable {
     function setErrorContenct(string[] memory _errorInstru) external onlyOwner {
         for (uint16 i = 0; i < _errorInstru.length; i++)
             errors[i] = _errorInstru[i];
+    }
+
+    function _validate(bool _condition, uint256 _errorCode) private view {
+        require(_condition, errors[_errorCode]);
     }
 }

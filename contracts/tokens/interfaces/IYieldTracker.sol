@@ -3,9 +3,10 @@
 pragma solidity ^0.8.0;
 
 interface IYieldTracker {
-    function claim(address _account, address _receiver)
-        external
-        returns (uint256);
+    function claim(
+        address _account,
+        address _receiver
+    ) external returns (uint256);
 
     function updateRewards(address _account) external;
 

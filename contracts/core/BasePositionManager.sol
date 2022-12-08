@@ -8,14 +8,13 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/Address.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
-
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "./interfaces/IRouter.sol";
 import "./interfaces/IVault.sol";
 import "./interfaces/IOrderBook.sol";
 import "./interfaces/IBasePositionManager.sol";
-import "../peripherals/interfaces/ITimelock.sol";
-import "../DID/interfaces/IESBT.sol";
 import "../tokens/interfaces/IWETH.sol";
+import "../peripherals/interfaces/ITimelock.sol";
 
 contract BasePositionManager is IBasePositionManager, ReentrancyGuard, Ownable {
     using SafeMath for uint256;
@@ -27,7 +26,6 @@ contract BasePositionManager is IBasePositionManager, ReentrancyGuard, Ownable {
     address public vault;
     address public router;
     address public weth;
-    address public esbt;
     // to prevent using the deposit and withdrawal of collateral as a zero fee swap,
     // there is a small depositFee charged if a collateral deposit results in the decrease
     // of leverage for an existing position
@@ -49,11 +47,6 @@ contract BasePositionManager is IBasePositionManager, ReentrancyGuard, Ownable {
         uint256[] shortSizes
     );
 
-    modifier onlyAdmin() {
-        require(msg.sender == admin, "BasePositionManager: forbidden");
-        _;
-    }
-
     constructor(
         address _vault,
         address _router,
@@ -72,24 +65,23 @@ contract BasePositionManager is IBasePositionManager, ReentrancyGuard, Ownable {
         require(msg.sender == weth, "BasePositionManager: invalid sender");
     }
 
-    function setAdmin(address _admin) external onlyOwner {
-        admin = _admin;
-        emit SetAdmin(_admin);
+    function withdrawToken(
+        address _account,
+        address _token,
+        uint256 _amount
+    ) external onlyOwner {
+        IERC20(_token).safeTransfer(_account, _amount);
     }
 
-    function setESBT(address _esbt) external onlyOwner {
-        esbt = _esbt;
-    }
-
-    function setDepositFee(uint256 _depositFee) external onlyAdmin {
+    function setDepositFee(uint256 _depositFee) external onlyOwner {
+        require(_depositFee < BASIS_POINTS_DIVISOR, "depositFee exceed limit");
         depositFee = _depositFee;
         emit SetDepositFee(_depositFee);
     }
 
-    function setIncreasePositionBufferBps(uint256 _increasePositionBufferBps)
-        external
-        onlyAdmin
-    {
+    function setIncreasePositionBufferBps(
+        uint256 _increasePositionBufferBps
+    ) external onlyOwner {
         increasePositionBufferBps = _increasePositionBufferBps;
         emit SetIncreasePositionBufferBps(_increasePositionBufferBps);
     }
@@ -98,7 +90,7 @@ contract BasePositionManager is IBasePositionManager, ReentrancyGuard, Ownable {
         address[] memory _tokens,
         uint256[] memory _longSizes,
         uint256[] memory _shortSizes
-    ) external onlyAdmin {
+    ) external onlyOwner {
         for (uint256 i = 0; i < _tokens.length; i++) {
             address token = _tokens[i];
             maxGlobalLongSizes[token] = _longSizes[i];
@@ -108,10 +100,10 @@ contract BasePositionManager is IBasePositionManager, ReentrancyGuard, Ownable {
         emit SetMaxGlobalSizes(_tokens, _longSizes, _shortSizes);
     }
 
-    function withdrawFees(address _token, address _receiver)
-        external
-        onlyAdmin
-    {
+    function withdrawFees(
+        address _token,
+        address _receiver
+    ) external onlyOwner {
         uint256 amount = feeReserves[_token];
         if (amount == 0) {
             return;
@@ -131,10 +123,10 @@ contract BasePositionManager is IBasePositionManager, ReentrancyGuard, Ownable {
         IERC20(_token).approve(_spender, _amount);
     }
 
-    function sendValue(address payable _receiver, uint256 _amount)
-        external
-        onlyOwner
-    {
+    function sendValue(
+        address payable _receiver,
+        uint256 _amount
+    ) external onlyOwner {
         _receiver.sendValue(_amount);
     }
 
@@ -190,8 +182,6 @@ contract BasePositionManager is IBasePositionManager, ReentrancyGuard, Ownable {
             _isLong
         );
         ITimelock(timelock).disableLeverage(_vault);
-
-        IESBT(esbt).updateTradingScoreForAccount(_account, _sizeDelta);
     }
 
     function _decreasePosition(
@@ -217,8 +207,8 @@ contract BasePositionManager is IBasePositionManager, ReentrancyGuard, Ownable {
                 "BasePositionManager: mark price higher than limit"
             );
         }
-        address timelock = Ownable(_vault).owner();
 
+        address timelock = Ownable(_vault).owner();
         ITimelock(timelock).enableLeverage(_vault);
         uint256 amountOut = IRouter(router).pluginDecreasePosition(
             _account,
@@ -265,9 +255,10 @@ contract BasePositionManager is IBasePositionManager, ReentrancyGuard, Ownable {
         }
     }
 
-    function _transferOutETH(uint256 _amountOut, address payable _receiver)
-        internal
-    {
+    function _transferOutETH(
+        uint256 _amountOut,
+        address payable _receiver
+    ) internal {
         IWETH(weth).withdraw(_amountOut);
         _receiver.sendValue(_amountOut);
     }

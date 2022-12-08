@@ -24,11 +24,10 @@ contract RoleStore is Ownable {
         roleMembers[key].remove(account);
     }
 
-    function hasRole(address account, bytes32 key)
-        external
-        view
-        returns (bool)
-    {
+    function hasRole(
+        address account,
+        bytes32 key
+    ) external view returns (bool) {
         return roleMembers[key].contains(account);
     }
 
@@ -36,11 +35,10 @@ contract RoleStore is Ownable {
         return roles.length();
     }
 
-    function getRoles(uint256 start, uint256 end)
-        external
-        view
-        returns (bytes32[] memory)
-    {
+    function getRoles(
+        uint256 start,
+        uint256 end
+    ) external view returns (bytes32[] memory) {
         return roles.valuesAt(start, end);
     }
 

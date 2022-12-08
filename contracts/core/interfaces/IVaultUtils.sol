@@ -34,6 +34,8 @@ interface IVaultUtils {
         bool _raise
     ) external view returns (uint256, uint256);
 
+    function getLiqPrice(bytes32 _posKey) external view returns (uint256);
+
     function getEntryFundingRate(
         address _collateralToken,
         address _indexToken,
@@ -57,15 +59,15 @@ interface IVaultUtils {
         uint256 _entryFundingRate
     ) external view returns (uint256);
 
-    function getBuyUsdxFeeBasisPoints(address _token, uint256 _usdxAmount)
-        external
-        view
-        returns (uint256);
+    function getBuyUsdxFeeBasisPoints(
+        address _token,
+        uint256 _usdxAmount
+    ) external view returns (uint256);
 
-    function getSellUsdxFeeBasisPoints(address _token, uint256 _usdxAmount)
-        external
-        view
-        returns (uint256);
+    function getSellUsdxFeeBasisPoints(
+        address _token,
+        uint256 _usdxAmount
+    ) external view returns (uint256);
 
     function getSwapFeeBasisPoints(
         address _tokenIn,
@@ -80,6 +82,24 @@ interface IVaultUtils {
         uint256 _taxBasisPoints,
         bool _increment
     ) external view returns (uint256);
+
+    function getPositionKey(
+        address _account,
+        address _collateralToken,
+        address _indexToken,
+        bool _isLong,
+        uint256 _keyID
+    ) external view returns (bytes32);
+
+    function addPosition(
+        bytes32 _key,
+        address _account,
+        address _collateralToken,
+        address _indexToken,
+        bool _isLong
+    ) external;
+
+    function removePosition(bytes32 _key) external;
 
     function BASIS_POINTS_DIVISOR() external view returns (uint256);
 
@@ -122,6 +142,16 @@ interface IVaultUtils {
     function setMaxLeverage(uint256 _maxLeverage) external;
 
     function errors(uint256) external view returns (string memory);
+
+    function getNextAveragePrice(
+        address _indexToken,
+        uint256 _size,
+        uint256 _averagePrice,
+        bool _isLong,
+        uint256 _nextPrice,
+        uint256 _sizeDelta,
+        uint256 _lastIncreasedTime
+    ) external view returns (uint256);
 
     function setFees(
         uint256 _taxBasisPoints,
